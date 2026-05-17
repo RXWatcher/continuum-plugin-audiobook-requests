@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -42,7 +43,9 @@ func (h *Handler) ExternalSearch() http.HandlerFunc {
 			Q     string `json:"q"`
 			Limit int    `json:"limit"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		// Bound the request body — it's a tiny JSON object; don't let the
+		// decoder read an unbounded payload.
+		_ = json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&body)
 		if body.Q == "" {
 			http.Error(w, "q required", http.StatusBadRequest)
 			return

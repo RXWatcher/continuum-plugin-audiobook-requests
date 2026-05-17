@@ -99,6 +99,9 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	if cfg.DownloadMode == "embedded" && cfg.EmbeddedDownloadDir == "" {
 		return nil, fmt.Errorf("embedded_download_dir is required when download_mode is embedded")
 	}
+	if cfg.EmbeddedListenPort < 0 || cfg.EmbeddedListenPort > 65535 {
+		return nil, fmt.Errorf("embedded_listen_port must be between 0 and 65535")
+	}
 	if s.onCfg != nil {
 		if err := s.onCfg(cfg); err != nil {
 			return nil, err

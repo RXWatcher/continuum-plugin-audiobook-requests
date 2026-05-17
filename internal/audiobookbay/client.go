@@ -39,6 +39,14 @@ var (
 	infoHashRe   = regexp.MustCompile(`(?is)<td>\s*Info Hash:\s*</td>\s*<td>\s*([0-9a-f]{40})\s*</td>`)
 	hashRe       = regexp.MustCompile(`(?i)\b[0-9a-f]{40}\b`)
 	magnetRe     = regexp.MustCompile(`(?i)magnet:\?xt=urn:btih:[^"' <]+`)
+	trackerRe    = regexp.MustCompile(`(?i)\b(?:udp|https?)://[^\s<"]+`)
+)
+
+// maxTrackerScan caps how many URL-ish substrings extractTrackers pulls from a
+// (hostile, up to 8 MiB) scraped page; maxTrackers caps what it keeps.
+const (
+	maxTrackerScan = 1024
+	maxTrackers    = 64
 )
 
 type Client struct {
@@ -545,10 +553,9 @@ func fallbackID(s string) string {
 }
 
 func extractTrackers(body string) []string {
-	re := regexp.MustCompile(`(?i)\b(?:udp|https?)://[^\s<"]+`)
-	matches := re.FindAllString(body, -1)
+	matches := trackerRe.FindAllString(body, maxTrackerScan)
 	seen := map[string]bool{}
-	out := make([]string, 0, len(matches))
+	out := make([]string, 0, maxTrackers)
 	for _, tracker := range matches {
 		tracker = strings.TrimRight(strings.TrimSpace(htmlUnescape(tracker)), "'\"),.;<")
 		lower := strings.ToLower(tracker)
@@ -557,6 +564,9 @@ func extractTrackers(body string) []string {
 		}
 		seen[tracker] = true
 		out = append(out, tracker)
+		if len(out) >= maxTrackers {
+			break
+		}
 	}
 	return out
 }

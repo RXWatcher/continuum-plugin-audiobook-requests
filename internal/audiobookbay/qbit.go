@@ -9,6 +9,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 type QBitClient struct {
@@ -16,6 +17,9 @@ type QBitClient struct {
 	username string
 	password string
 	hc       *http.Client
+
+	mu     sync.Mutex
+	authed bool // session cookie established; avoids a login per API call
 }
 
 type TorrentInfo struct {
@@ -35,9 +39,26 @@ func NewQBitClient(baseURL, username, password string) *QBitClient {
 	}
 }
 
+// invalidate forces the next Login to re-authenticate (called when a request
+// is rejected with 403, i.e. the cached session cookie expired).
+func (c *QBitClient) invalidate() {
+	c.mu.Lock()
+	c.authed = false
+	c.mu.Unlock()
+}
+
+// Login establishes a session if one isn't already cached. It is idempotent:
+// the reconciler polls up to 200 rows/min and previously logged in on every
+// AddMagnet/Torrent call.
 func (c *QBitClient) Login(ctx context.Context) error {
 	if c.baseURL == "" {
 		return fmt.Errorf("qbittorrent_url is required")
+	}
+	c.mu.Lock()
+	authed := c.authed
+	c.mu.Unlock()
+	if authed {
+		return nil
 	}
 	form := url.Values{}
 	form.Set("username", c.username)
@@ -56,6 +77,9 @@ func (c *QBitClient) Login(ctx context.Context) error {
 	if resp.StatusCode >= 400 || !strings.Contains(string(body), "Ok.") {
 		return fmt.Errorf("qbittorrent login failed: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+	c.mu.Lock()
+	c.authed = true
+	c.mu.Unlock()
 	return nil
 }
 
@@ -82,6 +106,9 @@ func (c *QBitClient) AddMagnet(ctx context.Context, magnet, category, savePath s
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode == http.StatusForbidden {
+		c.invalidate() // session expired; re-login on next call
+	}
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("qbittorrent add failed: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
@@ -105,6 +132,9 @@ func (c *QBitClient) Torrent(ctx context.Context, hash string) (TorrentInfo, err
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return TorrentInfo{}, err
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		c.invalidate() // session expired; re-login on next call
 	}
 	if resp.StatusCode >= 400 {
 		return TorrentInfo{}, fmt.Errorf("qbittorrent info failed: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))

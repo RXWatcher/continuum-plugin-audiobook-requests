@@ -74,13 +74,17 @@ func (m *Manager) Add(ctx context.Context, id, magnet, title string) (Status, er
 		t.SetDisplayName(title)
 	}
 	t.DisallowDataUpload()
-	t.DownloadAll()
 	if id == "" {
 		id = t.InfoHash().HexString()
 	}
 	m.mu.Lock()
 	m.jobs[id] = t
 	m.mu.Unlock()
+	go func() {
+		<-t.GotInfo()
+		t.DisallowDataUpload()
+		t.DownloadAll()
+	}()
 	return m.Status(ctx, id)
 }
 

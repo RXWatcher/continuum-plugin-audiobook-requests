@@ -1,0 +1,5 @@
+/continuum-plugin-audiobookbay-requests
+*.test
+*.out
+.envrc
+.claude/

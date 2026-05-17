@@ -1,0 +1,108 @@
+{
+  "plugin_id": "continuum.audiobookbay-requests",
+  "version": "0.1.0",
+  "checksum": "1250f06209dc3fbfffe6bf2b475003cc8f49f8e64f1b75faeb2e1e22c93ed38e",
+  "continuum_api_version": "v1",
+  "supported_platforms": [{"os": "linux", "arch": "amd64"}],
+  "capabilities": [
+    {
+      "type": "http_routes.v1",
+      "id": "backend",
+      "display_name": "AudiobookBay Requests API",
+      "description": "Request-provider API for AudiobookBay search and qBittorrent enqueueing."
+    },
+    {
+      "type": "event_consumer.v1",
+      "id": "request_handler",
+      "display_name": "Audiobook request handler",
+      "description": "Forwards audiobook request_submitted events to AudiobookBay search and qBittorrent.",
+      "subscriptions": ["plugin.continuum.audiobooks.request_submitted"]
+    },
+    {
+      "type": "audiobook_backend.v1",
+      "id": "default",
+      "display_name": "AudiobookBay Requests",
+      "description": "Audiobook request provider backed by AudiobookBay and qBittorrent; not a presentation library source.",
+      "metadata": {
+        "audiobook_roles": ["request_provider"],
+        "supports_catalog": false,
+        "supports_requests": true,
+        "supports_auto_monitoring": false
+      }
+    },
+    {
+      "type": "scheduled_task.v1",
+      "id": "reconciler",
+      "display_name": "Reconcile AudiobookBay request status",
+      "description": "Polls qBittorrent for status changes on non-terminal audiobook requests.",
+      "cron": "*/1 * * * *"
+    }
+  ],
+  "http_routes": [
+    {"id": "api", "method": "*", "path": "/api/v1/*", "access": "authenticated"}
+  ],
+  "global_config_schema": [
+    {
+      "key": "database_url",
+      "title": "Postgres connection string",
+      "description": "DSN for the dedicated AudiobookBay requests schema.",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}},\"required\":[\"value\"]}",
+      "required": true,
+      "admin_form": {"fields": [{"key": "value", "label": "Connection URL", "control": "ADMIN_FORM_CONTROL_PASSWORD", "required": true, "secret": true}]}
+    },
+    {
+      "key": "base_url",
+      "title": "AudiobookBay base URL",
+      "description": "AudiobookBay base URL, e.g. https://audiobookbay.lu (no trailing slash).",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}},\"required\":[\"value\"]}",
+      "required": true,
+      "admin_form": {"fields": [{"key": "value", "label": "URL", "control": "ADMIN_FORM_CONTROL_TEXT", "required": true}]}
+    },
+    {
+      "key": "qbittorrent_url",
+      "title": "qBittorrent Web UI URL",
+      "description": "Optional base URL for qBittorrent Web API, e.g. http://qbittorrent:8080. Leave blank for scrape-only magnet resolution.",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}",
+      "admin_form": {"fields": [{"key": "value", "label": "URL", "control": "ADMIN_FORM_CONTROL_TEXT"}]}
+    },
+    {
+      "key": "qbittorrent_username",
+      "title": "qBittorrent username",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}",
+      "admin_form": {"fields": [{"key": "value", "label": "Username", "control": "ADMIN_FORM_CONTROL_TEXT"}]}
+    },
+    {
+      "key": "qbittorrent_password",
+      "title": "qBittorrent password",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}",
+      "admin_form": {"fields": [{"key": "value", "label": "Password", "control": "ADMIN_FORM_CONTROL_PASSWORD", "secret": true}]}
+    },
+    {
+      "key": "qbittorrent_category",
+      "title": "qBittorrent category",
+      "description": "Optional category assigned to enqueued audiobook torrents.",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}",
+      "admin_form": {"fields": [{"key": "value", "label": "Category", "control": "ADMIN_FORM_CONTROL_TEXT"}]}
+    },
+    {
+      "key": "qbittorrent_save_path",
+      "title": "qBittorrent save path",
+      "description": "Optional save path sent to qBittorrent for new audiobook requests.",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}",
+      "admin_form": {"fields": [{"key": "value", "label": "Save path", "control": "ADMIN_FORM_CONTROL_TEXT"}]}
+    },
+    {
+      "key": "trackers",
+      "title": "Fallback trackers",
+      "description": "JSON array of trackers used when AudiobookBay exposes an info hash without a full magnet URI.",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}}",
+      "admin_form": {"fields": [{"key": "value", "label": "Trackers (JSON array)", "control": "ADMIN_FORM_CONTROL_TEXT"}]}
+    },
+    {
+      "key": "search_limit",
+      "title": "Search result limit",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"number\",\"minimum\":1,\"maximum\":50}}}",
+      "admin_form": {"fields": [{"key": "value", "label": "Limit", "control": "ADMIN_FORM_CONTROL_NUMBER"}]}
+    }
+  ]
+}

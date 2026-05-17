@@ -14,6 +14,10 @@ Use this plugin only with content you are legally allowed to access. The plugin
 does not bypass private accounts; the current scraper flow uses public
 AudiobookBay pages and does not require signing in.
 
+## Detailed Operations Docs
+
+- [Setup, debugging, and communication flows](docs/setup-debug-flows.md)
+
 ## Features
 
 - Listens for `plugin.continuum.audiobooks.request_submitted` events.

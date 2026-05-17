@@ -19,6 +19,7 @@ import (
 
 	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/audiobookbay"
 	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/consumer"
+	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/embedded"
 	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/event"
 	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/httproutes"
 	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/migrate"
@@ -45,6 +46,7 @@ func main() {
 
 	var (
 		poolPtr       atomic.Pointer[pgxpool.Pool]
+		embeddedPtr   atomic.Pointer[embedded.Manager]
 		consumerDepsP atomic.Pointer[consumer.Deps]
 		reconcilerPtr atomic.Pointer[reconciler.Reconciler]
 	)
@@ -74,16 +76,41 @@ func main() {
 			return fmt.Errorf("migrate: %w", err)
 		}
 		st := store.New(p)
+		var embeddedManager *embedded.Manager
+		if cfg.DownloadMode == "embedded" {
+			embeddedManager, err = embedded.New(embedded.Config{
+				DownloadDir: cfg.EmbeddedDownloadDir,
+				ListenPort:  cfg.EmbeddedListenPort,
+			})
+			if err != nil {
+				p.Close()
+				return err
+			}
+		}
 		abbClient := audiobookbay.NewClient(audiobookbay.Config{
-			BaseURL:      cfg.BaseURL,
-			QBitURL:      cfg.QBitURL,
-			QBitUsername: cfg.QBitUsername,
-			QBitPassword: cfg.QBitPassword,
-			Category:     cfg.QBitCategory,
-			SavePath:     cfg.QBitSavePath,
-			Trackers:     cfg.Trackers,
-			SearchLimit:  cfg.SearchLimit,
-		})
+			BaseURL:             cfg.BaseURL,
+			DownloadMode:        cfg.DownloadMode,
+			QBitURL:             cfg.QBitURL,
+			QBitUsername:        cfg.QBitUsername,
+			QBitPassword:        cfg.QBitPassword,
+			Category:            cfg.QBitCategory,
+			SavePath:            cfg.QBitSavePath,
+			EmbeddedDownloadDir: cfg.EmbeddedDownloadDir,
+			EmbeddedListenPort:  cfg.EmbeddedListenPort,
+			Trackers:            cfg.Trackers,
+			SearchLimit:         cfg.SearchLimit,
+		}, embeddedManager)
+		if embeddedManager != nil {
+			if rows, err := st.ListNonTerminal(ctx, 200); err == nil {
+				for _, row := range rows {
+					if row.ExternalID != "" && row.MagnetURI != "" {
+						if err := abbClient.RestoreDownload(ctx, row.ExternalID, row.MagnetURI, row.SelectedTitle); err != nil {
+							logger.Warn("restore embedded download", "request_id", row.RequestID, "err", err)
+						}
+					}
+				}
+			}
+		}
 
 		srv := server.New(server.Deps{
 			AudiobookBayClient: abbClient,
@@ -102,6 +129,9 @@ func main() {
 			PluginID: "continuum.audiobookbay-requests",
 		}))
 
+		if old := embeddedPtr.Swap(embeddedManager); old != nil {
+			old.Close()
+		}
 		if old := poolPtr.Swap(p); old != nil {
 			old.Close()
 		}

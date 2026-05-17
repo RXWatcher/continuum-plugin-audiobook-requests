@@ -46,7 +46,7 @@ func newReconcilerForTest(t *testing.T, torrentResp string) (*reconciler.Reconci
 		}
 	}))
 	t.Cleanup(up.Close)
-	ebk := audiobookbay.NewClient(audiobookbay.Config{BaseURL: "https://abb.example", QBitURL: up.URL})
+	ebk := audiobookbay.NewClient(audiobookbay.Config{BaseURL: "https://abb.example", QBitURL: up.URL}, nil)
 	r := reconciler.New(reconciler.Deps{Store: st, Pub: pub, ABB: ebk})
 	return r, pub, st
 }

@@ -20,7 +20,7 @@ func newRouter(c *audiobookbay.Client) *chi.Mux {
 }
 
 func TestCatalogEndpointsReportNotImplemented(t *testing.T) {
-	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: "https://abb.example"})
+	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: "https://abb.example"}, nil)
 	r := newRouter(c)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/catalog", nil))
@@ -38,7 +38,7 @@ func TestExternalSearchReturnsItems(t *testing.T) {
 		_, _ = w.Write([]byte(`<h1>Book</h1><a href="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567">Magnet</a>`))
 	}))
 	defer abb.Close()
-	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: abb.URL})
+	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: abb.URL}, nil)
 	r := newRouter(c)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("POST", "/external_search", strings.NewReader(`{"q":"book"}`)))
@@ -64,7 +64,7 @@ func TestRequestSnapshot(t *testing.T) {
 		}
 	}))
 	defer qbt.Close()
-	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: "https://abb.example", QBitURL: qbt.URL})
+	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: "https://abb.example", QBitURL: qbt.URL}, nil)
 	r := newRouter(c)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/requests/abc", nil))

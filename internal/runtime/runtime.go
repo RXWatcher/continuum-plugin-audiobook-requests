@@ -12,15 +12,18 @@ import (
 
 // Config is the parsed plugin global config (per spec Layer 9.3).
 type Config struct {
-	DatabaseURL  string
-	BaseURL      string
-	QBitURL      string
-	QBitUsername string
-	QBitPassword string
-	QBitCategory string
-	QBitSavePath string
-	Trackers     []string
-	SearchLimit  int
+	DatabaseURL         string
+	BaseURL             string
+	DownloadMode        string
+	QBitURL             string
+	QBitUsername        string
+	QBitPassword        string
+	QBitCategory        string
+	QBitSavePath        string
+	EmbeddedDownloadDir string
+	EmbeddedListenPort  int
+	Trackers            []string
+	SearchLimit         int
 }
 
 func (c Config) Configured() bool {
@@ -57,6 +60,8 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 			cfg.DatabaseURL = stringFromValue(m["value"])
 		case "base_url":
 			cfg.BaseURL = stringFromValue(m["value"])
+		case "download_mode":
+			cfg.DownloadMode = stringFromValue(m["value"])
 		case "qbittorrent_url":
 			cfg.QBitURL = stringFromValue(m["value"])
 		case "qbittorrent_username":
@@ -67,6 +72,10 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 			cfg.QBitCategory = stringFromValue(m["value"])
 		case "qbittorrent_save_path":
 			cfg.QBitSavePath = stringFromValue(m["value"])
+		case "embedded_download_dir":
+			cfg.EmbeddedDownloadDir = stringFromValue(m["value"])
+		case "embedded_listen_port":
+			cfg.EmbeddedListenPort = intFromValue(m["value"])
 		case "trackers":
 			cfg.Trackers = stringSliceFromValue(m["value"])
 		case "search_limit":
@@ -78,6 +87,17 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	}
 	if cfg.BaseURL == "" {
 		return nil, fmt.Errorf("base_url is required")
+	}
+	switch cfg.DownloadMode {
+	case "", "scrape_only", "qbittorrent", "embedded":
+	default:
+		return nil, fmt.Errorf("download_mode must be scrape_only, qbittorrent, or embedded")
+	}
+	if cfg.DownloadMode == "qbittorrent" && cfg.QBitURL == "" {
+		return nil, fmt.Errorf("qbittorrent_url is required when download_mode is qbittorrent")
+	}
+	if cfg.DownloadMode == "embedded" && cfg.EmbeddedDownloadDir == "" {
+		return nil, fmt.Errorf("embedded_download_dir is required when download_mode is embedded")
 	}
 	if s.onCfg != nil {
 		if err := s.onCfg(cfg); err != nil {

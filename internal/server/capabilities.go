@@ -14,7 +14,7 @@ type capabilitiesResponse struct {
 func (s *Server) handleCapabilities(w http.ResponseWriter, _ *http.Request) {
 	resp := capabilitiesResponse{
 		Formats:               []string{"m4b", "mp3", "m4a", "aac", "flac", "ogg", "opus"},
-		Features:              []string{"request_provider", "external_search", "request_snapshot", "admin_diagnostics", "provider_test_search", "qbittorrent_enqueue"},
+		Features:              []string{"request_provider", "external_search", "request_snapshot", "admin_diagnostics", "provider_test_search", "qbittorrent_enqueue", "embedded_torrent_download"},
 		SupportsRangeRequests: false,
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -70,6 +70,10 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 	dbMessage := "not configured"
 	var stats any = map[string]any{}
 	var recent any = []any{}
+	downloadMode := ""
+	if s.deps.AudiobookBayClient != nil {
+		downloadMode = s.deps.AudiobookBayClient.DownloadMode()
+	}
 	if s.deps.Store != nil {
 		if err := s.deps.Store.Pool().Ping(ctx); err != nil {
 			dbMessage = err.Error()
@@ -85,11 +89,12 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, map[string]any{
-		"plugin_id":  "continuum.audiobookbay-requests",
-		"role":       "request_provider",
-		"configured": s.deps.Config.Configured(),
-		"base_url":   s.deps.Config.BaseURL,
-		"features":   []string{"external_search", "request_snapshot", "admin_diagnostics", "provider_test_search"},
+		"plugin_id":     "continuum.audiobookbay-requests",
+		"role":          "request_provider",
+		"configured":    s.deps.Config.Configured(),
+		"base_url":      s.deps.Config.BaseURL,
+		"download_mode": downloadMode,
+		"features":      []string{"external_search", "request_snapshot", "admin_diagnostics", "provider_test_search"},
 		"upstream": map[string]any{
 			"ok":      upstreamOK,
 			"message": upstreamMessage,
@@ -98,6 +103,10 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 			"configured": s.deps.AudiobookBayClient != nil && s.deps.AudiobookBayClient.QBitConfigured(),
 			"ok":         qbitOK,
 			"message":    qbitMessage,
+		},
+		"embedded": map[string]any{
+			"configured":   s.deps.AudiobookBayClient != nil && s.deps.AudiobookBayClient.EmbeddedConfigured(),
+			"download_dir": s.deps.Config.EmbeddedDownloadDir,
 		},
 		"database": map[string]any{
 			"ok":      dbOK,

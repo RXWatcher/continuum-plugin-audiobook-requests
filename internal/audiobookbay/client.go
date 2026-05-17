@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/embedded"
 	"golang.org/x/net/html"
 )
 
@@ -29,20 +30,29 @@ var (
 )
 
 type Client struct {
-	cfg Config
-	hc  *http.Client
-	qbt *QBitClient
+	cfg      Config
+	hc       *http.Client
+	qbt      *QBitClient
+	embedded *embedded.Manager
 }
 
-func NewClient(cfg Config) *Client {
+func NewClient(cfg Config, embeddedManager *embedded.Manager) *Client {
 	if cfg.SearchLimit <= 0 {
 		cfg.SearchLimit = 10
 	}
+	if cfg.DownloadMode == "" {
+		if cfg.QBitURL != "" {
+			cfg.DownloadMode = "qbittorrent"
+		} else {
+			cfg.DownloadMode = "scrape_only"
+		}
+	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
 	return &Client{
-		cfg: cfg,
-		hc:  &http.Client{Timeout: defaultTimeout},
-		qbt: NewQBitClient(cfg.QBitURL, cfg.QBitUsername, cfg.QBitPassword),
+		cfg:      cfg,
+		hc:       &http.Client{Timeout: defaultTimeout},
+		qbt:      NewQBitClient(cfg.QBitURL, cfg.QBitUsername, cfg.QBitPassword),
+		embedded: embeddedManager,
 	}
 }
 
@@ -65,6 +75,12 @@ func (c *Client) Ping(ctx context.Context) error {
 }
 
 func (c *Client) QBitConfigured() bool { return c.cfg.QBitURL != "" }
+
+func (c *Client) EmbeddedConfigured() bool {
+	return c.cfg.DownloadMode == "embedded" && c.embedded != nil
+}
+
+func (c *Client) DownloadMode() string { return c.cfg.DownloadMode }
 
 func (c *Client) PingQBit(ctx context.Context) error {
 	if c.cfg.QBitURL == "" {
@@ -191,18 +207,41 @@ func (c *Client) StartDownload(ctx context.Context, sourceID, query string) (Dow
 		id = fallbackID(hit.MagnetURI)
 	}
 	savePath := c.savePathFor(hit.Title)
-	if c.cfg.QBitURL != "" {
+	switch c.cfg.DownloadMode {
+	case "qbittorrent":
 		if err := c.qbt.AddMagnet(ctx, hit.MagnetURI, c.cfg.Category, savePath); err != nil {
 			return DownloadResponse{}, err
 		}
-	} else {
+		return downloadResponse(id, "queued", hit), nil
+	case "embedded":
+		if c.embedded == nil {
+			return DownloadResponse{}, fmt.Errorf("embedded downloader not configured")
+		}
+		st, err := c.embedded.Add(ctx, id, hit.MagnetURI, hit.Title)
+		if err != nil {
+			return DownloadResponse{}, err
+		}
+		resp := downloadResponse(id, st.Status, hit)
+		resp.Progress = st.Progress
+		return resp, nil
+	default:
 		return downloadResponse(id, "magnet_ready", hit), nil
 	}
-	return downloadResponse(id, "queued", hit), nil
 }
 
 func (c *Client) GetDownload(ctx context.Context, hash string) (DownloadResponse, error) {
-	if c.cfg.QBitURL == "" {
+	switch c.cfg.DownloadMode {
+	case "qbittorrent":
+	case "embedded":
+		if c.embedded == nil {
+			return DownloadResponse{}, fmt.Errorf("embedded downloader not configured")
+		}
+		st, err := c.embedded.Status(ctx, hash)
+		if err != nil {
+			return DownloadResponse{}, err
+		}
+		return DownloadResponse{ID: hash, Status: st.Status, Title: st.Title, Progress: st.Progress}, nil
+	default:
 		return DownloadResponse{ID: hash, Status: "magnet_ready"}, nil
 	}
 	t, err := c.qbt.Torrent(ctx, hash)
@@ -218,6 +257,14 @@ func (c *Client) GetDownload(ctx context.Context, hash string) (DownloadResponse
 		status = "failed"
 	}
 	return DownloadResponse{ID: hash, Status: status, Title: t.Name, Progress: int(t.Progress * 100)}, nil
+}
+
+func (c *Client) RestoreDownload(ctx context.Context, hash, magnet, title string) error {
+	if c.cfg.DownloadMode != "embedded" || c.embedded == nil || magnet == "" {
+		return nil
+	}
+	_, err := c.embedded.Add(ctx, hash, magnet, title)
+	return err
 }
 
 func (c *Client) get(ctx context.Context, rawURL string) (string, error) {

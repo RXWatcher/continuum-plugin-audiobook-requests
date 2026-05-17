@@ -49,7 +49,7 @@ func TestClient_ExternalSearchParsesAudiobookBay(t *testing.T) {
 	}))
 	defer abb.Close()
 
-	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: abb.URL})
+	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: abb.URL}, nil)
 	hits, err := c.ExternalSearch(context.Background(), "weir", 5)
 	if err != nil {
 		t.Fatalf("ExternalSearch: %v", err)
@@ -74,7 +74,7 @@ func TestClient_StartDownloadSearchesAndAddsMagnet(t *testing.T) {
 	}))
 	defer abb.Close()
 
-	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: abb.URL, QBitURL: qbt.URL})
+	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: abb.URL, QBitURL: qbt.URL}, nil)
 	resp, err := c.StartDownload(context.Background(), "", "book")
 	if err != nil {
 		t.Fatalf("StartDownload: %v", err)
@@ -102,7 +102,7 @@ func TestClient_StartDownloadChoosesBestScoredResult(t *testing.T) {
 	}))
 	defer abb.Close()
 
-	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: abb.URL})
+	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: abb.URL}, nil)
 	resp, err := c.StartDownload(context.Background(), "", "Project Hail Mary")
 	if err != nil {
 		t.Fatalf("StartDownload: %v", err)
@@ -118,7 +118,7 @@ func TestClient_StartDownloadChoosesBestScoredResult(t *testing.T) {
 func TestClient_GetDownloadReadsQBitState(t *testing.T) {
 	qbt := fakeQBit(t)
 	defer qbt.Close()
-	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: "https://abb.example", QBitURL: qbt.URL})
+	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: "https://abb.example", QBitURL: qbt.URL}, nil)
 	resp, err := c.GetDownload(context.Background(), "abcdef")
 	if err != nil {
 		t.Fatalf("GetDownload: %v", err)

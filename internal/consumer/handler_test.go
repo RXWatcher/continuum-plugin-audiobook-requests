@@ -47,7 +47,7 @@ func newConsumerForTest(t *testing.T, upstream *httptest.Server) (*consumer.Hand
 	st := newTestStore(t)
 	pub := &fakePub{}
 	qbt := fakeQBit(t)
-	ebk := audiobookbay.NewClient(audiobookbay.Config{BaseURL: upstream.URL, QBitURL: qbt.URL})
+	ebk := audiobookbay.NewClient(audiobookbay.Config{BaseURL: upstream.URL, QBitURL: qbt.URL}, nil)
 	deps := &consumer.Deps{
 		Store: st, Pub: pub, ABB: ebk,
 		PluginID: "continuum.audiobookbay-requests",

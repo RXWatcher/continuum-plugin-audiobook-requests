@@ -15,7 +15,7 @@
       "type": "event_consumer.v1",
       "id": "request_handler",
       "display_name": "Audiobook request handler",
-      "description": "Forwards audiobook request_submitted events to AudiobookBay search and qBittorrent.",
+      "description": "Forwards audiobook request_submitted events to AudiobookBay search and the configured download mode.",
       "subscriptions": ["plugin.continuum.audiobooks.request_submitted"]
     },
     {
@@ -34,7 +34,7 @@
       "type": "scheduled_task.v1",
       "id": "reconciler",
       "display_name": "Reconcile AudiobookBay request status",
-      "description": "Polls qBittorrent for status changes on non-terminal audiobook requests.",
+      "description": "Polls embedded/qBittorrent download status for non-terminal audiobook requests.",
       "cron": "*/1 * * * *"
     }
   ],
@@ -57,6 +57,13 @@
       "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}},\"required\":[\"value\"]}",
       "required": true,
       "admin_form": {"fields": [{"key": "value", "label": "URL", "control": "ADMIN_FORM_CONTROL_TEXT", "required": true}]}
+    },
+    {
+      "key": "download_mode",
+      "title": "Download mode",
+      "description": "One of scrape_only, qbittorrent, or embedded. Defaults to qbittorrent when qBittorrent URL is set, otherwise scrape_only.",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\",\"enum\":[\"scrape_only\",\"qbittorrent\",\"embedded\"]}}}",
+      "admin_form": {"fields": [{"key": "value", "label": "Mode", "control": "ADMIN_FORM_CONTROL_TEXT"}]}
     },
     {
       "key": "qbittorrent_url",
@@ -90,6 +97,20 @@
       "description": "Optional save path sent to qBittorrent for new audiobook requests.",
       "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}",
       "admin_form": {"fields": [{"key": "value", "label": "Save path", "control": "ADMIN_FORM_CONTROL_TEXT"}]}
+    },
+    {
+      "key": "embedded_download_dir",
+      "title": "Embedded download directory",
+      "description": "Required when download_mode is embedded. Completed torrent files are written here.",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}}}",
+      "admin_form": {"fields": [{"key": "value", "label": "Download directory", "control": "ADMIN_FORM_CONTROL_TEXT"}]}
+    },
+    {
+      "key": "embedded_listen_port",
+      "title": "Embedded torrent listen port",
+      "description": "Optional BitTorrent listen port for embedded mode. Leave blank/0 for a random port.",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"number\",\"minimum\":0,\"maximum\":65535}}}",
+      "admin_form": {"fields": [{"key": "value", "label": "Listen port", "control": "ADMIN_FORM_CONTROL_NUMBER"}]}
     },
     {
       "key": "trackers",

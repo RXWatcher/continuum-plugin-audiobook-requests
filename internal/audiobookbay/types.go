@@ -1,14 +1,17 @@
 package audiobookbay
 
 type Config struct {
-	BaseURL      string
-	QBitURL      string
-	QBitUsername string
-	QBitPassword string
-	Category     string
-	SavePath     string
-	Trackers     []string
-	SearchLimit  int
+	BaseURL             string
+	DownloadMode        string
+	QBitURL             string
+	QBitUsername        string
+	QBitPassword        string
+	Category            string
+	SavePath            string
+	EmbeddedDownloadDir string
+	EmbeddedListenPort  int
+	Trackers            []string
+	SearchLimit         int
 }
 
 type SearchHit struct {

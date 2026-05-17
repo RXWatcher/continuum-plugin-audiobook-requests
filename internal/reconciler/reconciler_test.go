@@ -63,6 +63,20 @@ func TestReconciler_StatusChange(t *testing.T) {
 	}
 }
 
+func TestReconciler_QueuedStatusChange(t *testing.T) {
+	r, pub, st := newReconcilerForTest(t, `[]`)
+	_ = st.UpsertForwardedRequest(context.Background(), store.ForwardedRequest{
+		RequestID: "req-1", ExternalID: "job-1", Status: "acknowledged", UpdatedAt: time.Now(),
+	})
+	_ = r.Tick(context.Background())
+	if len(pub.pubs) != 1 || pub.pubs[0].Name != "request_status_changed" {
+		t.Errorf("got pubs = %v", pub.pubs)
+	}
+	if pub.pubs[0].Payload["status"] != "queued" {
+		t.Errorf("status = %v", pub.pubs[0].Payload["status"])
+	}
+}
+
 func TestReconciler_Imported(t *testing.T) {
 	r, pub, st := newReconcilerForTest(t, `[{"hash":"job-1","name":"Book","state":"uploading","progress":1}]`)
 	_ = st.UpsertForwardedRequest(context.Background(), store.ForwardedRequest{

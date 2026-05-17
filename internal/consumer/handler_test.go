@@ -81,8 +81,11 @@ func TestConsumer_HappyPath_EmitsAcknowledged(t *testing.T) {
 		t.Errorf("emitted = %+v", pub.pubs)
 	}
 	row, _ := st.GetForwardedRequest(context.Background(), "r-1")
-	if row.Status != "acknowledged" || row.ExternalID != "0123456789abcdef0123456789abcdef01234567" {
+	if row.Status != "queued" || row.ExternalID != "0123456789abcdef0123456789abcdef01234567" {
 		t.Errorf("row = %+v", row)
+	}
+	if pub.pubs[0].Payload["status"] != "queued" {
+		t.Errorf("status payload = %v", pub.pubs[0].Payload["status"])
 	}
 }
 

@@ -132,7 +132,7 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 func translateStatus(ebkStatus string) string {
 	switch ebkStatus {
 	case "queued":
-		return "acknowledged"
+		return "queued"
 	case "magnet_ready":
 		return "acknowledged"
 	case "downloading":

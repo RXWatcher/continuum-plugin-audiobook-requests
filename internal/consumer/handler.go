@@ -102,8 +102,9 @@ func (h *Handler) HandleEvent(ctx context.Context, req *pluginv1.HandleEventRequ
 		})
 		return &pluginv1.HandleEventResponse{}, nil
 	}
+	status := requestStatusFromDownload(resp.Status)
 	if uerr := d.Store.UpsertForwardedRequest(ctx, store.ForwardedRequest{
-		RequestID: requestID, ExternalID: resp.ID, Status: "acknowledged",
+		RequestID: requestID, ExternalID: resp.ID, Status: status,
 		SourceID: sourceID, SearchQuery: query, SelectedTitle: resp.Title,
 		DetailURL: resp.DetailURL, InfoHash: resp.InfoHash, MagnetURI: resp.Magnet,
 		SelectedScore: resp.Score, SelectedScoreReason: resp.Reason, UpdatedAt: time.Now(),
@@ -119,8 +120,18 @@ func (h *Handler) HandleEvent(ctx context.Context, req *pluginv1.HandleEventRequ
 		"external_id": resp.ID, "provider_plugin_id": d.PluginID,
 		"selected_title": resp.Title, "detail_url": resp.DetailURL,
 		"info_hash": resp.InfoHash, "score": resp.Score, "reason": resp.Reason,
+		"status": status, "progress": resp.Progress,
 	})
 	return &pluginv1.HandleEventResponse{}, nil
+}
+
+func requestStatusFromDownload(status string) string {
+	switch status {
+	case "queued", "downloading", "imported", "failed":
+		return status
+	default:
+		return "acknowledged"
+	}
 }
 
 func targetPluginIDFromPayload(p map[string]any) string {

@@ -170,7 +170,8 @@ func (s *Store) ListNonTerminal(ctx context.Context, limit int) ([]ForwardedRequ
 		       COALESCE(error_text,''), created_at, updated_at
 		FROM forwarded_request
 		WHERE status NOT IN ('imported','failed')
-		ORDER BY COALESCE(last_polled, '0001-01-01 00:00:00'::timestamptz) ASC
+		ORDER BY COALESCE(last_polled, '0001-01-01 00:00:00'::timestamptz) ASC,
+		         request_id ASC
 		LIMIT $1
 	`, limit)
 	if err != nil {
@@ -240,7 +241,7 @@ func (s *Store) RequestStats(ctx context.Context) (RequestStats, error) {
 			COUNT(*) FILTER (WHERE status = 'failed')::int,
 			COUNT(*) FILTER (WHERE status = 'imported')::int,
 			COUNT(*) FILTER (WHERE COALESCE(error_text,'') <> '')::int,
-			COUNT(*) FILTER (WHERE COALESCE(external_id,'') = '')::int
+			COUNT(*) FILTER (WHERE COALESCE(external_id,'') = '' AND status NOT IN ('imported','failed'))::int
 		FROM forwarded_request
 	`)
 	var stats RequestStats

@@ -10,6 +10,29 @@ import (
 	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/audiobookbay"
 )
 
+// AudiobookBay is an untrusted scraped site. A broken/hostile error response
+// must not have its (up to 8 MiB) body inlined whole into the error string
+// that propagates into logs and request error_text.
+func TestClient_TruncatesErrorBody(t *testing.T) {
+	big := strings.Repeat("x", 60000)
+	abb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		_, _ = w.Write([]byte(big))
+	}))
+	defer abb.Close()
+	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: abb.URL}, nil)
+	_, err := c.ExternalSearch(context.Background(), "weir", 5)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if len(err.Error()) > 1024 {
+		t.Errorf("error not truncated: %d bytes", len(err.Error()))
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("error should mention status: %q", err.Error())
+	}
+}
+
 func fakeQBit(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

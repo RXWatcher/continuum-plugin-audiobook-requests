@@ -89,3 +89,49 @@ func TestUpsertForwardedRequest_TerminalGuard(t *testing.T) {
 		t.Errorf("non-terminal row should advance; got %q", got.Status)
 	}
 }
+
+// Never-polled rows all share the epoch last_polled sentinel; without a
+// tiebreaker their order is undefined, so under LIMIT the same subset can be
+// returned every tick while the rest starve. Order must be deterministic.
+func TestListNonTerminal_DeterministicTiebreak(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for _, id := range []string{"req-3", "req-2", "req-1"} {
+		_ = s.UpsertForwardedRequest(ctx, store.ForwardedRequest{
+			RequestID: id, Status: "submitted", UpdatedAt: time.Now(),
+		})
+	}
+	rows, err := s.ListNonTerminal(ctx, 100)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	want := []string{"req-1", "req-2", "req-3"}
+	for i := range want {
+		if rows[i].RequestID != want[i] {
+			t.Fatalf("order = %v..., want %v (no deterministic tiebreaker)", rows, want)
+		}
+	}
+}
+
+// Unsubmitted means "no external_id yet AND still in flight". A failed row
+// with no external_id must count as failed only, not also as unsubmitted.
+func TestRequestStats_UnsubmittedExcludesTerminal(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	_ = s.UpsertForwardedRequest(ctx, store.ForwardedRequest{
+		RequestID: "pending", Status: "submitted", UpdatedAt: time.Now(),
+	})
+	_ = s.UpsertForwardedRequest(ctx, store.ForwardedRequest{
+		RequestID: "dead", Status: "failed", ErrorText: "boom", UpdatedAt: time.Now(),
+	})
+	stats, err := s.RequestStats(ctx)
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if stats.Unsubmitted != 1 {
+		t.Errorf("Unsubmitted = %d, want 1 (failed row must not be counted)", stats.Unsubmitted)
+	}
+	if stats.Failed != 1 {
+		t.Errorf("Failed = %d, want 1", stats.Failed)
+	}
+}

@@ -21,7 +21,18 @@ import (
 const (
 	defaultTimeout  = 30 * time.Second
 	maxResponseSize = 8 << 20
+	// errBodySnippet caps how much of an upstream error body is inlined into
+	// an error string. The body can be up to maxResponseSize and the error
+	// propagates into logs and request error_text.
+	errBodySnippet = 512
 )
+
+func truncForError(b []byte) string {
+	if len(b) <= errBodySnippet {
+		return string(b)
+	}
+	return string(b[:errBodySnippet]) + "…(truncated)"
+}
 
 var (
 	detailHrefRe = regexp.MustCompile(`(?i)^/(audio-books|abss)/[^"'#?]+/?`)
@@ -284,7 +295,7 @@ func (c *Client) get(ctx context.Context, rawURL string) (string, error) {
 		return "", err
 	}
 	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("audiobookbay %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("audiobookbay %d: %s", resp.StatusCode, truncForError(body))
 	}
 	return string(body), nil
 }

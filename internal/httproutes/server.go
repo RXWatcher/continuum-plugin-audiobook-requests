@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"sync/atomic"
 
 	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
@@ -44,11 +45,17 @@ func (s *Server) Handle(_ context.Context, req *pluginv1.HandleHTTPRequest) (*pl
 	if req.GetQuery() != nil {
 		vals := url.Values{}
 		for k, v := range req.GetQuery().GetFields() {
-			if sv := v.GetStringValue(); sv != "" {
-				vals.Set(k, sv)
-				continue
+			// Use the scalar value, not v.String() (which is the protobuf
+			// debug form: a number arrives as "number_value:50", corrupting
+			// ?limit= / ?library_id= so pagination/scoping silently breaks).
+			switch val := v.AsInterface().(type) {
+			case string:
+				vals.Set(k, val)
+			case bool:
+				vals.Set(k, strconv.FormatBool(val))
+			case float64:
+				vals.Set(k, strconv.FormatFloat(val, 'f', -1, 64))
 			}
-			vals.Set(k, v.String())
 		}
 		rawQuery = vals.Encode()
 	}

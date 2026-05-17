@@ -145,3 +145,35 @@ func fakeQBit(t *testing.T) *httptest.Server {
 	t.Cleanup(srv.Close)
 	return srv
 }
+
+// Capability servers serve before Configure runs. If depsFn returns nil the
+// handler must nack (return an error) so the host redelivers once configured,
+// instead of acking the event and dropping the request permanently.
+func TestConsumer_NotConfigured_Nacks(t *testing.T) {
+	h := consumer.New(func() *consumer.Deps { return nil }, nil)
+	resp, err := h.HandleEvent(context.Background(), &pluginv1.HandleEventRequest{
+		EventName: "plugin.continuum.audiobooks.request_submitted",
+		Payload: mustStruct(t, map[string]any{
+			"request_id":       "r-cfg",
+			"target_plugin_id": "continuum.audiobookbay-requests",
+			"title":            "X",
+		}),
+	})
+	if err == nil {
+		t.Fatal("not-configured must return an error so the host redelivers")
+	}
+	if resp != nil {
+		t.Errorf("response must be nil on nack; got %+v", resp)
+	}
+}
+
+// A foreign / wrong-event message is not ours: ack (no error) and drop so the
+// host does not redeliver another plugin's event to us forever.
+func TestConsumer_NonTargetEvent_Acks(t *testing.T) {
+	h := consumer.New(func() *consumer.Deps { return nil }, nil)
+	if _, err := h.HandleEvent(context.Background(), &pluginv1.HandleEventRequest{
+		EventName: "some.other.event",
+	}); err != nil {
+		t.Fatalf("foreign event must be acked, not nacked; got err=%v", err)
+	}
+}

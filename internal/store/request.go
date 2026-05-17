@@ -72,7 +72,14 @@ func (s *Store) UpsertForwardedRequest(ctx context.Context, r ForwardedRequest) 
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		ON CONFLICT (request_id) DO UPDATE SET
 			external_id = COALESCE(EXCLUDED.external_id, forwarded_request.external_id),
-			status      = EXCLUDED.status,
+			-- Terminal guard: once a request is imported/failed (the set
+			-- ListNonTerminal treats as terminal) a duplicate/late/replayed
+			-- event must not resurrect it (event delivery is at-least-once).
+			status      = CASE
+			                WHEN forwarded_request.status IN ('imported','failed')
+			                THEN forwarded_request.status
+			                ELSE EXCLUDED.status
+			              END,
 			source_id   = COALESCE(EXCLUDED.source_id, forwarded_request.source_id),
 			search_query = COALESCE(EXCLUDED.search_query, forwarded_request.search_query),
 			selected_title = COALESCE(EXCLUDED.selected_title, forwarded_request.selected_title),

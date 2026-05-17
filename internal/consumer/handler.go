@@ -5,6 +5,7 @@ package consumer
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -51,7 +52,10 @@ func (h *Handler) HandleEvent(ctx context.Context, req *pluginv1.HandleEventRequ
 	}
 	d := h.depsFn()
 	if d == nil {
-		return &pluginv1.HandleEventResponse{}, nil
+		// Capability servers serve before Configure runs. Nack so the host
+		// redelivers once configured instead of acking and dropping the
+		// request permanently.
+		return nil, fmt.Errorf("plugin not configured yet")
 	}
 	p := req.GetPayload().AsMap()
 	if target := targetPluginIDFromPayload(p); target != d.PluginID {
@@ -66,11 +70,16 @@ func (h *Handler) HandleEvent(ctx context.Context, req *pluginv1.HandleEventRequ
 	author, _ := p["author"].(string)
 	query := strings.TrimSpace(title + " " + author)
 
+	// Must persist before kicking off the torrent: if this row is lost the
+	// reconciler never polls it and the request is permanently lost (worse,
+	// the torrent would be orphaned in qBittorrent/embedded). Nack instead of
+	// starting untracked work; the terminal guard in UpsertForwardedRequest
+	// makes the inevitable redelivery idempotent.
 	if err := d.Store.UpsertForwardedRequest(ctx, store.ForwardedRequest{
 		RequestID: requestID, Status: "submitted", SourceID: sourceID,
 		SearchQuery: query, UpdatedAt: time.Now(),
 	}); err != nil {
-		h.logger.Warn("upsert forwarded_request (initial)", "request_id", requestID, "err", err)
+		return nil, fmt.Errorf("persist submitted %s: %w", requestID, err)
 	}
 
 	if query == "" && sourceID == "" {
@@ -93,8 +102,10 @@ func (h *Handler) HandleEvent(ctx context.Context, req *pluginv1.HandleEventRequ
 		if uerr := d.Store.UpsertForwardedRequest(ctx, store.ForwardedRequest{
 			RequestID: requestID, Status: "failed", ErrorText: err.Error(), UpdatedAt: time.Now(),
 		}); uerr != nil {
-			h.logger.Warn("upsert forwarded_request (after StartDownload err)",
-				"request_id", requestID, "upstream_err", err, "db_err", uerr)
+			// Couldn't even record the failure — nack so it's retried rather
+			// than left stuck non-terminal (the row is still "submitted",
+			// which the reconciler skips forever for want of an external_id).
+			return nil, fmt.Errorf("persist failed %s: %w (upstream: %v)", requestID, uerr, err)
 		}
 		d.Pub.Publish(ctx, "request_failed", map[string]any{
 			"request_id": requestID, "requestId": requestID,
@@ -109,11 +120,13 @@ func (h *Handler) HandleEvent(ctx context.Context, req *pluginv1.HandleEventRequ
 		DetailURL: resp.DetailURL, InfoHash: resp.InfoHash, MagnetURI: resp.Magnet,
 		SelectedScore: resp.Score, SelectedScoreReason: resp.Reason, UpdatedAt: time.Now(),
 	}); uerr != nil {
-		// Upstream already accepted; logging is enough — the reconciler will
-		// heal the row on the next tick. Returning an error here would cause
-		// the host to retry the event, duplicate-adding upstream.
-		h.logger.Warn("upsert forwarded_request (after acknowledged)",
-			"request_id", requestID, "external_id", resp.ID, "db_err", uerr)
+		// Must persist the external_id (info hash): without it the reconciler
+		// skips this row forever (it requires a non-empty external_id), so the
+		// torrent is never polled and the request hangs permanently. Nack; the
+		// terminal guard makes redelivery idempotent. (Re-adding the same
+		// magnet/hash to qBittorrent/embedded is idempotent — the accepted
+		// tradeoff vs. a permanently lost request.)
+		return nil, fmt.Errorf("persist acknowledged %s: %w", requestID, uerr)
 	}
 	d.Pub.Publish(ctx, "request_acknowledged", map[string]any{
 		"request_id": requestID, "requestId": requestID,

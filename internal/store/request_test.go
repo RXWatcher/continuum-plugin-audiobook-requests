@@ -59,3 +59,33 @@ func TestListNonTerminal(t *testing.T) {
 		t.Errorf("non-terminal = %+v", rows)
 	}
 }
+
+// Event delivery is at-least-once: a duplicate/late/replayed
+// request_submitted (status submitted/acknowledged/queued) must not resurrect
+// a row that already reached a terminal state (imported or failed).
+func TestUpsertForwardedRequest_TerminalGuard(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for _, terminal := range []string{"imported", "failed"} {
+		id := "term-" + terminal
+		if err := s.UpsertForwardedRequest(ctx, store.ForwardedRequest{
+			RequestID: id, Status: terminal, ExternalID: "h1", UpdatedAt: time.Now(),
+		}); err != nil {
+			t.Fatalf("seed %s: %v", terminal, err)
+		}
+		if err := s.UpsertForwardedRequest(ctx, store.ForwardedRequest{
+			RequestID: id, Status: "submitted", UpdatedAt: time.Now(),
+		}); err != nil {
+			t.Fatalf("replay %s: %v", terminal, err)
+		}
+		if got, _ := s.GetForwardedRequest(ctx, id); got.Status != terminal {
+			t.Errorf("%s row resurrected to %q", terminal, got.Status)
+		}
+	}
+	// A non-terminal row must still advance.
+	_ = s.UpsertForwardedRequest(ctx, store.ForwardedRequest{RequestID: "live", Status: "queued", UpdatedAt: time.Now()})
+	_ = s.UpsertForwardedRequest(ctx, store.ForwardedRequest{RequestID: "live", Status: "downloading", UpdatedAt: time.Now()})
+	if got, _ := s.GetForwardedRequest(ctx, "live"); got.Status != "downloading" {
+		t.Errorf("non-terminal row should advance; got %q", got.Status)
+	}
+}

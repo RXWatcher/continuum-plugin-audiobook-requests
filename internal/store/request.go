@@ -102,6 +102,38 @@ func (s *Store) UpsertForwardedRequest(ctx context.Context, r ForwardedRequest) 
 	return nil
 }
 
+// MarkPolled records a successful upstream poll on an existing row: it
+// advances status (honoring the terminal guard so a concurrent at-least-once
+// replay can't be regressed), stamps last_polled/updated_at, and CLEARS
+// error_text. Clearing matters: a prior transient failure set error_text and
+// the success-path upsert can't unset it (COALESCE keeps the old value), so
+// without this it sticks forever and RequestStats.WithErrors over-counts
+// permanently. No-ops if the row is gone.
+func (s *Store) MarkPolled(ctx context.Context, requestID, externalID, status string, when time.Time) error {
+	if requestID == "" {
+		return fmt.Errorf("request_id required")
+	}
+	if when.IsZero() {
+		when = time.Now()
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE forwarded_request SET
+			external_id = COALESCE($2, external_id),
+			status      = CASE
+			                 WHEN status IN ('imported','failed') THEN status
+			                 ELSE $3
+			               END,
+			last_polled = $4,
+			error_text  = NULL,
+			updated_at  = $4
+		WHERE request_id = $1
+	`, requestID, stringPtr(externalID), status, when)
+	if err != nil {
+		return fmt.Errorf("mark polled: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) GetForwardedRequest(ctx context.Context, requestID string) (ForwardedRequest, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT request_id, COALESCE(external_id,''), status,

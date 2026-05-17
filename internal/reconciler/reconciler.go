@@ -67,6 +67,13 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 	// operators can see why.
 	var firstErr error
 	for _, row := range rows {
+		// Tick budget exhausted (or cancelled): stop now. Continuing would
+		// make every remaining GetDownload/upsert fail with "context
+		// deadline exceeded" and record that as a per-row upstream error
+		// across all the rows we didn't get to.
+		if ctx.Err() != nil {
+			break
+		}
 		if row.ExternalID == "" {
 			continue
 		}
@@ -84,20 +91,17 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 			continue
 		}
 		newStatus := translateStatus(snap.Status)
-		if newStatus == row.Status {
-			if uerr := r.deps.Store.UpsertForwardedRequest(ctx, store.ForwardedRequest{
-				RequestID: row.RequestID, ExternalID: row.ExternalID,
-				Status: row.Status, LastPolled: time.Now(), UpdatedAt: time.Now(),
-			}); uerr != nil && firstErr == nil {
-				firstErr = fmt.Errorf("upsert (same status): %w", uerr)
+		// "" => unknown upstream status: hold the current status. Either way
+		// the poll succeeded, so MarkPolled stamps last_polled and clears any
+		// sticky error_text from a previous transient failure.
+		if newStatus == "" || newStatus == row.Status {
+			if uerr := r.deps.Store.MarkPolled(ctx, row.RequestID, row.ExternalID, row.Status, time.Now()); uerr != nil && firstErr == nil {
+				firstErr = fmt.Errorf("mark polled (no transition): %w", uerr)
 			}
 			continue
 		}
-		if uerr := r.deps.Store.UpsertForwardedRequest(ctx, store.ForwardedRequest{
-			RequestID: row.RequestID, ExternalID: row.ExternalID,
-			Status: newStatus, LastPolled: time.Now(), UpdatedAt: time.Now(),
-		}); uerr != nil && firstErr == nil {
-			firstErr = fmt.Errorf("upsert (status change): %w", uerr)
+		if uerr := r.deps.Store.MarkPolled(ctx, row.RequestID, row.ExternalID, newStatus, time.Now()); uerr != nil && firstErr == nil {
+			firstErr = fmt.Errorf("mark polled (status change): %w", uerr)
 		}
 		switch newStatus {
 		case "imported":
@@ -142,5 +146,11 @@ func translateStatus(ebkStatus string) string {
 	case "failed", "error":
 		return "failed"
 	}
-	return "acknowledged"
+	// Unknown/unmapped status (e.g. an embedded/qBittorrent state we don't
+	// recognise): signal "no transition" so the caller holds the current
+	// status. Previously this returned "acknowledged", which regressed an
+	// in-flight request (e.g. downloading -> acknowledged) and spammed a
+	// status-changed event on every poll. (magnet_ready -> acknowledged
+	// above is an intentional mapping for scrape-only mode and is kept.)
+	return ""
 }

@@ -101,3 +101,44 @@ func TestReconciler_Failed(t *testing.T) {
 		t.Errorf("got pubs = %v", pub.pubs)
 	}
 }
+
+// A transient upstream failure sets error_text. Once polling succeeds again
+// it must be cleared, otherwise it sticks forever and RequestStats.WithErrors
+// over-counts permanently.
+func TestReconciler_SuccessfulPoll_ClearsStickyError(t *testing.T) {
+	r, _, st := newReconcilerForTest(t, `[{"hash":"job-1","name":"Book","state":"downloading","progress":0.5}]`)
+	_ = st.UpsertForwardedRequest(context.Background(), store.ForwardedRequest{
+		RequestID: "req-1", ExternalID: "job-1", Status: "downloading",
+		ErrorText: "boom: upstream blip", LastPolled: time.Now().Add(-time.Hour),
+		UpdatedAt: time.Now(),
+	})
+	if err := r.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	row, _ := st.GetForwardedRequest(context.Background(), "req-1")
+	if row.ErrorText != "" {
+		t.Errorf("error_text should be cleared after a successful poll; got %q", row.ErrorText)
+	}
+	stats, _ := st.RequestStats(context.Background())
+	if stats.WithErrors != 0 {
+		t.Errorf("WithErrors should be 0 after recovery; got %d", stats.WithErrors)
+	}
+}
+
+// A cancelled context must short-circuit: no events, no DB writes.
+func TestReconciler_CancelledContext_NoProcessing(t *testing.T) {
+	r, pub, st := newReconcilerForTest(t, `[{"hash":"job-1","name":"Book","state":"uploading","progress":1}]`)
+	_ = st.UpsertForwardedRequest(context.Background(), store.ForwardedRequest{
+		RequestID: "req-1", ExternalID: "job-1", Status: "downloading", UpdatedAt: time.Now(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = r.Tick(ctx)
+	if len(pub.pubs) != 0 {
+		t.Errorf("cancelled context must not publish; got %v", pub.pubs)
+	}
+	row, _ := st.GetForwardedRequest(context.Background(), "req-1")
+	if row.Status != "downloading" {
+		t.Errorf("cancelled context must not write; status = %q", row.Status)
+	}
+}

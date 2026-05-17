@@ -33,6 +33,27 @@ func TestClient_TruncatesErrorBody(t *testing.T) {
 	}
 }
 
+// source_id comes from the request payload; Resolve must refuse an absolute
+// URL outside the configured AudiobookBay base (SSRF), without fetching it.
+func TestClient_Resolve_RejectsForeignSourceID(t *testing.T) {
+	hit := false
+	abb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+	}))
+	defer abb.Close()
+	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: abb.URL}, nil)
+	if _, err := c.Resolve(context.Background(), "http://169.254.169.254/latest/meta-data/"); err == nil {
+		t.Fatal("foreign absolute source_id must be rejected")
+	}
+	if hit {
+		t.Fatal("upstream/foreign host must not be contacted for a rejected source_id")
+	}
+	// A path-shaped source_id is still accepted (prefixed onto BaseURL).
+	if _, err := c.Resolve(context.Background(), "/audio-books/x/"); err != nil && strings.Contains(err.Error(), "outside AudiobookBay base") {
+		t.Fatalf("a relative path source_id must not be rejected by the SSRF guard: %v", err)
+	}
+}
+
 func fakeQBit(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

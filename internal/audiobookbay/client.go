@@ -156,6 +156,14 @@ func (c *Client) Resolve(ctx context.Context, sourceID string) (SearchHit, error
 	if strings.HasPrefix(sourceID, "/") {
 		detailURL = c.cfg.BaseURL + sourceID
 	}
+	// SSRF guard: source_id comes from the request_submitted payload
+	// (attacker-influenced). The resolved URL must stay within the
+	// operator-configured AudiobookBay base; an absolute source_id like
+	// http://169.254.169.254/ or http://internal-host/ would otherwise be
+	// fetched verbatim.
+	if detailURL != c.cfg.BaseURL && !strings.HasPrefix(detailURL, c.cfg.BaseURL+"/") {
+		return SearchHit{}, fmt.Errorf("source_id outside AudiobookBay base")
+	}
 	body, err := c.get(ctx, detailURL)
 	if err != nil {
 		return SearchHit{}, err

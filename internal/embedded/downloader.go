@@ -6,9 +6,16 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/anacrolix/torrent"
 )
+
+// metadataTimeout bounds how long we wait for a magnet to obtain its info
+// (peers/seeds). A dead/peerless magnet's GotInfo() never fires; without this
+// the waiter goroutine and the *torrent.Torrent (conns, piece state) would
+// leak forever and the request would poll "downloading" indefinitely.
+const metadataTimeout = 3 * time.Minute
 
 type Config struct {
 	DownloadDir string
@@ -25,8 +32,11 @@ type Status struct {
 type Manager struct {
 	client *torrent.Client
 
-	mu   sync.Mutex
-	jobs map[string]*torrent.Torrent
+	mu        sync.Mutex
+	jobs      map[string]*torrent.Torrent
+	failed    map[string]string // id -> reason; lets Status report a terminal state
+	closeOnce sync.Once
+	closed    chan struct{}
 }
 
 func New(cfg Config) (*Manager, error) {
@@ -52,13 +62,19 @@ func New(cfg Config) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create embedded torrent client: %w", err)
 	}
-	return &Manager{client: client, jobs: map[string]*torrent.Torrent{}}, nil
+	return &Manager{
+		client: client,
+		jobs:   map[string]*torrent.Torrent{},
+		failed: map[string]string{},
+		closed: make(chan struct{}),
+	}, nil
 }
 
 func (m *Manager) Close() {
 	if m == nil || m.client == nil {
 		return
 	}
+	m.closeOnce.Do(func() { close(m.closed) }) // unblock metadata waiters
 	_ = m.client.Close()
 }
 
@@ -79,11 +95,26 @@ func (m *Manager) Add(ctx context.Context, id, magnet, title string) (Status, er
 	}
 	m.mu.Lock()
 	m.jobs[id] = t
+	delete(m.failed, id)
 	m.mu.Unlock()
 	go func() {
-		<-t.GotInfo()
-		t.DisallowDataUpload()
-		t.DownloadAll()
+		select {
+		case <-t.GotInfo():
+			t.DisallowDataUpload()
+			t.DownloadAll()
+		case <-time.After(metadataTimeout):
+			// No peers/seeds ever produced metadata. Drop the torrent
+			// (frees conns/piece state) and record a terminal failure so
+			// Status returns "failed" and the reconciler stops polling and
+			// fails the request out, instead of leaking forever.
+			t.Drop()
+			m.mu.Lock()
+			delete(m.jobs, id)
+			m.failed[id] = "metadata timeout: no peers/seeds for magnet"
+			m.mu.Unlock()
+		case <-m.closed:
+			return
+		}
 	}()
 	return m.Status(ctx, id)
 }
@@ -93,6 +124,10 @@ func (m *Manager) Status(_ context.Context, id string) (Status, error) {
 		return Status{}, fmt.Errorf("embedded downloader not configured")
 	}
 	m.mu.Lock()
+	if reason, bad := m.failed[id]; bad {
+		m.mu.Unlock()
+		return Status{ID: id, Status: "failed", Title: reason}, nil
+	}
 	t := m.jobs[id]
 	m.mu.Unlock()
 	if t == nil {

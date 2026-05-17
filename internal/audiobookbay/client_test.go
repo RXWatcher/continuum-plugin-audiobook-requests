@@ -67,7 +67,7 @@ func TestClient_StartDownloadSearchesAndAddsMagnet(t *testing.T) {
 		case "/page/1/":
 			_, _ = w.Write([]byte(`<a href="/audio-books/book/">Book</a>`))
 		case "/audio-books/book/":
-			_, _ = w.Write([]byte(`<h1>Book</h1>Info Hash: 0123456789abcdef0123456789abcdef01234567`))
+			_, _ = w.Write([]byte(`<h1>Book</h1><table><tr><td>Info Hash:</td><td>0123456789abcdef0123456789abcdef01234567</td></tr></table>`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -93,9 +93,9 @@ func TestClient_StartDownloadChoosesBestScoredResult(t *testing.T) {
 				<a href="/audio-books/project-hail-mary/">Project Hail Mary</a>
 			`))
 		case "/audio-books/random-book/":
-			_, _ = w.Write([]byte(`<h1>Random Book</h1>Info Hash: 1111111111111111111111111111111111111111`))
+			_, _ = w.Write([]byte(`<h1>Random Book</h1><table><tr><td>Info Hash:</td><td>1111111111111111111111111111111111111111</td></tr></table>`))
 		case "/audio-books/project-hail-mary/":
-			_, _ = w.Write([]byte(`<h1>Project Hail Mary</h1>Info Hash: 2222222222222222222222222222222222222222`))
+			_, _ = w.Write([]byte(`<h1>Project Hail Mary</h1><table><tr><td>Info Hash:</td><td>2222222222222222222222222222222222222222</td></tr></table>`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}

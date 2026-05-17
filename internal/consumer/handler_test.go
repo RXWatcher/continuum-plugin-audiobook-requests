@@ -62,7 +62,7 @@ func TestConsumer_HappyPath_EmitsAcknowledged(t *testing.T) {
 		case "/page/1/":
 			_, _ = w.Write([]byte(`<a href="/audio-books/book/">Book</a>`))
 		case "/audio-books/book/":
-			_, _ = w.Write([]byte(`<h1>Book</h1>Info Hash: 0123456789abcdef0123456789abcdef01234567`))
+			_, _ = w.Write([]byte(`<h1>Book</h1><table><tr><td>Info Hash:</td><td>0123456789abcdef0123456789abcdef01234567</td></tr></table>`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}

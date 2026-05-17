@@ -25,6 +25,7 @@ const (
 
 var (
 	detailHrefRe = regexp.MustCompile(`(?i)^/(audio-books|abss)/[^"'#?]+/?`)
+	infoHashRe   = regexp.MustCompile(`(?is)<td>\s*Info Hash:\s*</td>\s*<td>\s*([0-9a-f]{40})\s*</td>`)
 	hashRe       = regexp.MustCompile(`(?i)\b[0-9a-f]{40}\b`)
 	magnetRe     = regexp.MustCompile(`(?i)magnet:\?xt=urn:btih:[^"' <]+`)
 )
@@ -154,8 +155,8 @@ func (c *Client) Resolve(ctx context.Context, sourceID string) (SearchHit, error
 		magnet = htmlUnescape(m)
 	}
 	infoHash := ""
-	if m := hashRe.FindString(body); m != "" {
-		infoHash = strings.ToLower(m)
+	if match := infoHashRe.FindStringSubmatch(body); len(match) == 2 {
+		infoHash = strings.ToLower(match[1])
 	}
 	trackers := extractTrackers(body)
 	if magnet == "" && infoHash != "" {
@@ -272,7 +273,7 @@ func (c *Client) get(ctx context.Context, rawURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "Continuum AudiobookBay Requests/0.1")
+	req.Header.Set("User-Agent", "Mozilla/5.0")
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return "", err
@@ -426,10 +427,9 @@ func (c *Client) normalizeDetailURL(href string) (string, bool) {
 }
 
 func (c *Client) magnetFromHash(infoHash, title string, pageTrackers []string) string {
-	v := url.Values{}
-	v.Set("xt", "urn:btih:"+strings.ToLower(infoHash))
+	parts := []string{"xt=urn:btih:" + strings.ToLower(infoHash)}
 	if title != "" {
-		v.Set("dn", title)
+		parts = append(parts, "dn="+url.QueryEscape(title))
 	}
 	trackers := pageTrackers
 	if len(trackers) == 0 {
@@ -445,10 +445,10 @@ func (c *Client) magnetFromHash(infoHash, title string, pageTrackers []string) s
 	}
 	for _, tr := range trackers {
 		if strings.TrimSpace(tr) != "" {
-			v.Add("tr", strings.TrimSpace(tr))
+			parts = append(parts, "tr="+url.QueryEscape(strings.TrimSpace(tr)))
 		}
 	}
-	return "magnet:?" + v.Encode()
+	return "magnet:?" + strings.Join(parts, "&")
 }
 
 func (c *Client) savePathFor(title string) string {
@@ -531,8 +531,9 @@ func extractTrackers(body string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(matches))
 	for _, tracker := range matches {
-		tracker = strings.TrimSpace(htmlUnescape(tracker))
-		if tracker == "" || seen[tracker] {
+		tracker = strings.TrimRight(strings.TrimSpace(htmlUnescape(tracker)), "'\"),.;<")
+		lower := strings.ToLower(tracker)
+		if tracker == "" || seen[tracker] || (!strings.Contains(lower, "announce") && !strings.Contains(lower, "tracker")) {
 			continue
 		}
 		seen[tracker] = true

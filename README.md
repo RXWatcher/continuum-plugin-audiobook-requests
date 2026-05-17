@@ -12,8 +12,10 @@ shelves, catalog browsing, streaming, playback state, or owned library data.
 
 - Receives `plugin.continuum.audiobooks.request_submitted` events.
 - Searches AudiobookBay by submitted title and author.
+- Scores candidates by title/query match, token coverage, resolved magnet, and seed count when present.
 - Accepts an optional `source_id` containing an AudiobookBay detail URL.
 - Adds the selected magnet to qBittorrent when qBittorrent is configured.
+- Persists the selected title, detail URL, info hash, magnet URI, score, and score reason.
 - Tracks non-terminal qBittorrent jobs with a scheduled reconciler.
 - Publishes request status events back to Continuum.
 - Exposes authenticated diagnostics, test search, external search, and request
@@ -64,6 +66,17 @@ Published event suffixes:
 | `qbittorrent_save_path` | no | Save path sent to qBittorrent. |
 | `trackers` | no | JSON array of fallback trackers for info-hash-only pages. |
 | `search_limit` | no | Maximum AudiobookBay results to inspect; default 10. |
+
+## Selection And Diagnostics
+
+Automatic requests use a scored selection pass instead of blindly taking the
+first result. The score favors exact title matches, query token coverage, pages
+where the magnet/info hash resolves cleanly, and seed count when that value is
+available from the page.
+
+`GET /api/v1/admin/diagnostics` reports separate health for AudiobookBay,
+qBittorrent, and Postgres. It also includes recent forwarded requests with the
+selected result metadata so operators can audit why a result was chosen.
 
 Example `database_url`:
 

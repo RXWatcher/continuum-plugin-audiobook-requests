@@ -22,12 +22,18 @@ type SearchHit struct {
 	Size      string   `json:"size,omitempty"`
 	Seeders   int      `json:"seeders,omitempty"`
 	Leechers  int      `json:"leechers,omitempty"`
+	Score     int      `json:"score,omitempty"`
+	Reason    string   `json:"reason,omitempty"`
 }
 
 type DownloadResponse struct {
-	ID       string `json:"id"`
-	Status   string `json:"status"`
-	Magnet   string `json:"magnet,omitempty"`
-	Title    string `json:"title,omitempty"`
-	Progress int    `json:"progress,omitempty"`
+	ID        string `json:"id"`
+	Status    string `json:"status"`
+	Magnet    string `json:"magnet,omitempty"`
+	Title     string `json:"title,omitempty"`
+	DetailURL string `json:"detail_url,omitempty"`
+	InfoHash  string `json:"info_hash,omitempty"`
+	Score     int    `json:"score,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Progress  int    `json:"progress,omitempty"`
 }

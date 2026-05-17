@@ -48,17 +48,28 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	upstreamOK := false
 	upstreamMessage := "not configured"
+	qbitOK := false
+	qbitMessage := "not configured"
 	if s.deps.AudiobookBayClient != nil {
 		if err := s.deps.AudiobookBayClient.Ping(ctx); err != nil {
 			upstreamMessage = err.Error()
 		} else {
 			upstreamOK = true
-			upstreamMessage = "upstream reachable"
+			upstreamMessage = "AudiobookBay reachable"
+		}
+		if s.deps.AudiobookBayClient.QBitConfigured() {
+			if err := s.deps.AudiobookBayClient.PingQBit(ctx); err != nil {
+				qbitMessage = err.Error()
+			} else {
+				qbitOK = true
+				qbitMessage = "qBittorrent reachable"
+			}
 		}
 	}
 	dbOK := false
 	dbMessage := "not configured"
 	var stats any = map[string]any{}
+	var recent any = []any{}
 	if s.deps.Store != nil {
 		if err := s.deps.Store.Pool().Ping(ctx); err != nil {
 			dbMessage = err.Error()
@@ -68,6 +79,9 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 		}
 		if requestStats, err := s.deps.Store.RequestStats(ctx); err == nil {
 			stats = requestStats
+		}
+		if recentRows, err := s.deps.Store.ListRecent(ctx, 10); err == nil {
+			recent = recentRows
 		}
 	}
 	writeJSON(w, 200, map[string]any{
@@ -80,11 +94,17 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 			"ok":      upstreamOK,
 			"message": upstreamMessage,
 		},
+		"qbittorrent": map[string]any{
+			"configured": s.deps.AudiobookBayClient != nil && s.deps.AudiobookBayClient.QBitConfigured(),
+			"ok":         qbitOK,
+			"message":    qbitMessage,
+		},
 		"database": map[string]any{
 			"ok":      dbOK,
 			"message": dbMessage,
 		},
-		"requests": stats,
+		"requests":        stats,
+		"recent_requests": recent,
 	})
 }
 

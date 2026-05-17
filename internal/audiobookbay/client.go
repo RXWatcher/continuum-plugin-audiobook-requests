@@ -61,12 +61,16 @@ func (c *Client) Ping(ctx context.Context) error {
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("audiobookbay returned %d", resp.StatusCode)
 	}
-	if c.qbt != nil && c.cfg.QBitURL != "" {
-		if err := c.qbt.Login(ctx); err != nil {
-			return fmt.Errorf("qbit login: %w", err)
-		}
-	}
 	return nil
+}
+
+func (c *Client) QBitConfigured() bool { return c.cfg.QBitURL != "" }
+
+func (c *Client) PingQBit(ctx context.Context) error {
+	if c.cfg.QBitURL == "" {
+		return nil
+	}
+	return c.qbt.Login(ctx)
 }
 
 func (c *Client) ExternalSearch(ctx context.Context, query string, limit int) ([]SearchHit, error) {
@@ -110,8 +114,12 @@ func (c *Client) ExternalSearch(ctx context.Context, query string, limit int) ([
 		if err == nil {
 			hits[i].InfoHash = detail.InfoHash
 			hits[i].MagnetURI = detail.MagnetURI
+			if detail.Title != "" {
+				hits[i].Title = detail.Title
+			}
 		}
 	}
+	scoreHits(hits, query)
 	return hits, nil
 }
 
@@ -169,6 +177,7 @@ func (c *Client) StartDownload(ctx context.Context, sourceID, query string) (Dow
 		hit = results[0]
 		if hit.MagnetURI == "" {
 			hit, err = c.Resolve(ctx, hit.SourceID)
+			hit.Score, hit.Reason = scoreHit(hit, query)
 		}
 	}
 	if err != nil {
@@ -187,9 +196,9 @@ func (c *Client) StartDownload(ctx context.Context, sourceID, query string) (Dow
 			return DownloadResponse{}, err
 		}
 	} else {
-		return DownloadResponse{ID: id, Status: "magnet_ready", Magnet: hit.MagnetURI, Title: hit.Title}, nil
+		return downloadResponse(id, "magnet_ready", hit), nil
 	}
-	return DownloadResponse{ID: id, Status: "queued", Magnet: hit.MagnetURI, Title: hit.Title}, nil
+	return downloadResponse(id, "queued", hit), nil
 }
 
 func (c *Client) GetDownload(ctx context.Context, hash string) (DownloadResponse, error) {
@@ -267,6 +276,89 @@ func (c *Client) parseSearch(body string, limit int) ([]SearchHit, error) {
 		return len(hits[i].Title) > len(hits[j].Title)
 	})
 	return hits, nil
+}
+
+func scoreHits(hits []SearchHit, query string) {
+	for i := range hits {
+		hits[i].Score, hits[i].Reason = scoreHit(hits[i], query)
+	}
+	sort.SliceStable(hits, func(i, j int) bool {
+		if hits[i].Score == hits[j].Score {
+			return hits[i].Seeders > hits[j].Seeders
+		}
+		return hits[i].Score > hits[j].Score
+	})
+}
+
+func scoreHit(hit SearchHit, query string) (int, string) {
+	title := normalizeText(hit.Title)
+	q := normalizeText(query)
+	if q == "" {
+		return hit.Seeders, "source_id supplied"
+	}
+	score := hit.Seeders
+	reasons := []string{}
+	if title == q {
+		score += 120
+		reasons = append(reasons, "exact title match")
+	} else if strings.Contains(title, q) {
+		score += 80
+		reasons = append(reasons, "title contains query")
+	}
+	qTokens := tokenSet(q)
+	titleTokens := tokenSet(title)
+	matches := 0
+	for token := range qTokens {
+		if titleTokens[token] {
+			matches++
+		}
+	}
+	if len(qTokens) > 0 {
+		coverage := matches * 100 / len(qTokens)
+		score += coverage
+		reasons = append(reasons, fmt.Sprintf("%d%% query token coverage", coverage))
+	}
+	if hit.InfoHash != "" || hit.MagnetURI != "" {
+		score += 20
+		reasons = append(reasons, "magnet resolved")
+	}
+	if hit.Seeders > 0 {
+		reasons = append(reasons, fmt.Sprintf("%d seeders", hit.Seeders))
+	}
+	if len(reasons) == 0 {
+		reasons = append(reasons, "fallback result order")
+	}
+	return score, strings.Join(reasons, ", ")
+}
+
+func normalizeText(s string) string {
+	s = strings.ToLower(s)
+	return strings.Join(strings.FieldsFunc(s, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9')
+	}), " ")
+}
+
+func tokenSet(s string) map[string]bool {
+	out := map[string]bool{}
+	for _, token := range strings.Fields(s) {
+		if len(token) > 1 {
+			out[token] = true
+		}
+	}
+	return out
+}
+
+func downloadResponse(id, status string, hit SearchHit) DownloadResponse {
+	return DownloadResponse{
+		ID:        id,
+		Status:    status,
+		Magnet:    hit.MagnetURI,
+		Title:     hit.Title,
+		DetailURL: hit.DetailURL,
+		InfoHash:  hit.InfoHash,
+		Score:     hit.Score,
+		Reason:    hit.Reason,
+	}
 }
 
 func (c *Client) normalizeDetailURL(href string) (string, bool) {

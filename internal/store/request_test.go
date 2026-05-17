@@ -29,10 +29,19 @@ func TestUpsertForwardedRequest_UpdatesExisting(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	_ = s.UpsertForwardedRequest(ctx, store.ForwardedRequest{RequestID: "req-1", Status: "submitted", UpdatedAt: time.Now()})
-	_ = s.UpsertForwardedRequest(ctx, store.ForwardedRequest{RequestID: "req-1", Status: "acknowledged", ExternalID: "job-42", UpdatedAt: time.Now()})
+	_ = s.UpsertForwardedRequest(ctx, store.ForwardedRequest{
+		RequestID: "req-1", Status: "acknowledged", ExternalID: "job-42",
+		SearchQuery: "project hail mary", SelectedTitle: "Project Hail Mary",
+		DetailURL: "https://abb/audio-books/project-hail-mary/", InfoHash: "abc",
+		MagnetURI: "magnet:?xt=urn:btih:abc", SelectedScore: 220,
+		SelectedScoreReason: "exact title match", UpdatedAt: time.Now(),
+	})
 	got, _ := s.GetForwardedRequest(ctx, "req-1")
 	if got.Status != "acknowledged" || got.ExternalID != "job-42" {
 		t.Errorf("got %+v", got)
+	}
+	if got.SelectedTitle != "Project Hail Mary" || got.SelectedScore != 220 || got.InfoHash != "abc" {
+		t.Errorf("metadata = %+v", got)
 	}
 }
 

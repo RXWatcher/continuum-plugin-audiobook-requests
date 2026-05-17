@@ -72,6 +72,10 @@ func (h *Handler) RequestSnapshot() http.HandlerFunc {
 			"external_id": snap.ID,
 			"status":      snap.Status,
 			"title":       snap.Title,
+			"detail_url":  snap.DetailURL,
+			"info_hash":   snap.InfoHash,
+			"score":       snap.Score,
+			"reason":      snap.Reason,
 			"progress":    snap.Progress,
 		})
 	}

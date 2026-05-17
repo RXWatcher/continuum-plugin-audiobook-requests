@@ -84,6 +84,37 @@ func TestClient_StartDownloadSearchesAndAddsMagnet(t *testing.T) {
 	}
 }
 
+func TestClient_StartDownloadChoosesBestScoredResult(t *testing.T) {
+	abb := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/page/1/":
+			_, _ = w.Write([]byte(`
+				<a href="/audio-books/random-book/">Random Book</a>
+				<a href="/audio-books/project-hail-mary/">Project Hail Mary</a>
+			`))
+		case "/audio-books/random-book/":
+			_, _ = w.Write([]byte(`<h1>Random Book</h1>Info Hash: 1111111111111111111111111111111111111111`))
+		case "/audio-books/project-hail-mary/":
+			_, _ = w.Write([]byte(`<h1>Project Hail Mary</h1>Info Hash: 2222222222222222222222222222222222222222`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer abb.Close()
+
+	c := audiobookbay.NewClient(audiobookbay.Config{BaseURL: abb.URL})
+	resp, err := c.StartDownload(context.Background(), "", "Project Hail Mary")
+	if err != nil {
+		t.Fatalf("StartDownload: %v", err)
+	}
+	if resp.ID != "2222222222222222222222222222222222222222" {
+		t.Fatalf("selected %+v", resp)
+	}
+	if resp.Score == 0 || !strings.Contains(resp.Reason, "exact title match") {
+		t.Fatalf("score/reason = %d %q", resp.Score, resp.Reason)
+	}
+}
+
 func TestClient_GetDownloadReadsQBitState(t *testing.T) {
 	qbt := fakeQBit(t)
 	defer qbt.Close()

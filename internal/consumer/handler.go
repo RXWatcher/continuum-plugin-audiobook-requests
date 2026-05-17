@@ -67,7 +67,8 @@ func (h *Handler) HandleEvent(ctx context.Context, req *pluginv1.HandleEventRequ
 	query := strings.TrimSpace(title + " " + author)
 
 	if err := d.Store.UpsertForwardedRequest(ctx, store.ForwardedRequest{
-		RequestID: requestID, Status: "submitted", UpdatedAt: time.Now(),
+		RequestID: requestID, Status: "submitted", SourceID: sourceID,
+		SearchQuery: query, UpdatedAt: time.Now(),
 	}); err != nil {
 		h.logger.Warn("upsert forwarded_request (initial)", "request_id", requestID, "err", err)
 	}
@@ -102,7 +103,10 @@ func (h *Handler) HandleEvent(ctx context.Context, req *pluginv1.HandleEventRequ
 		return &pluginv1.HandleEventResponse{}, nil
 	}
 	if uerr := d.Store.UpsertForwardedRequest(ctx, store.ForwardedRequest{
-		RequestID: requestID, ExternalID: resp.ID, Status: "acknowledged", UpdatedAt: time.Now(),
+		RequestID: requestID, ExternalID: resp.ID, Status: "acknowledged",
+		SourceID: sourceID, SearchQuery: query, SelectedTitle: resp.Title,
+		DetailURL: resp.DetailURL, InfoHash: resp.InfoHash, MagnetURI: resp.Magnet,
+		SelectedScore: resp.Score, SelectedScoreReason: resp.Reason, UpdatedAt: time.Now(),
 	}); uerr != nil {
 		// Upstream already accepted; logging is enough — the reconciler will
 		// heal the row on the next tick. Returning an error here would cause
@@ -113,6 +117,8 @@ func (h *Handler) HandleEvent(ctx context.Context, req *pluginv1.HandleEventRequ
 	d.Pub.Publish(ctx, "request_acknowledged", map[string]any{
 		"request_id": requestID, "requestId": requestID,
 		"external_id": resp.ID, "provider_plugin_id": d.PluginID,
+		"selected_title": resp.Title, "detail_url": resp.DetailURL,
+		"info_hash": resp.InfoHash, "score": resp.Score, "reason": resp.Reason,
 	})
 	return &pluginv1.HandleEventResponse{}, nil
 }

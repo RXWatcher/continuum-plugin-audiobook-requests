@@ -52,13 +52,25 @@ func (s *Server) handleAdminHome(w http.ResponseWriter, r *http.Request) {
 <html lang="en" data-theme="` + adminTheme(r) + `">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AudiobookBay Requests</title><style>` + adminThemeCSS() + `</style></head>
 <body>
-<p><a href="/admin/plugins">&larr; Back to plugins</a></p>
-<h1>AudiobookBay Requests</h1>
-<p>Audiobook request provider with AudiobookBay search and download reconciliation.</p>
-<ul>
-<li><a href="./api/v1/admin/diagnostics">Diagnostics</a></li>
-<li><a href="./api/v1/admin/test-search">Test search</a></li>
-</ul>
+<main class="shell">
+<a class="back" href="/admin/plugins">&larr; Plugins</a>
+<header><p class="eyebrow">Audiobook request provider</p><h1>AudiobookBay Requests</h1><p>Search, magnet resolution, download handoff, and request reconciliation for the Audiobooks portal.</p></header>
+<section class="grid">
+<article class="panel"><h2>Setup status</h2><div id="status" class="stack muted">Loading diagnostics...</div></article>
+<article class="panel"><h2>Provider test</h2><form id="search-form" class="row"><input id="q" value="foundation" placeholder="Search title or author"><button type="submit">Test search</button></form><pre id="search-output" class="output">No test run yet.</pre></article>
+</section>
+<section class="panel"><h2>Operations checklist</h2><ul><li>Configure <code>database_url</code>, <code>base_url</code>, and the intended download mode.</li><li>For qBittorrent mode, verify qBittorrent reachability before approving user requests.</li><li>Select this plugin as the Audiobooks request provider.</li><li>Use recent request status when diagnosing stalled downloads.</li></ul></section>
+</main>
+<script>
+const statusEl=document.getElementById("status"), output=document.getElementById("search-output");
+const hostToken=new URLSearchParams(location.search).get("token")||"";
+function headers(){return hostToken?{Authorization:"Bearer "+hostToken}:{}}
+function badge(ok){return '<span class="badge '+(ok?'ok':'bad')+'">'+(ok?'OK':'Needs attention')+'</span>'}
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+async function load(){try{const r=await fetch("./api/v1/admin/diagnostics",{headers:headers()});const d=await r.json();statusEl.innerHTML='<div>'+badge(d.configured)+' Configured</div><div>'+badge(d.database?.ok)+' Database: '+esc(d.database?.message)+'</div><div>'+badge(d.upstream?.ok)+' AudiobookBay: '+esc(d.upstream?.message)+'</div><div>'+badge(!d.qbittorrent?.configured||d.qbittorrent?.ok)+' qBittorrent: '+esc(d.qbittorrent?.message)+'</div><div class="muted">Mode: '+esc(d.download_mode||"not set")+'</div><pre class="output">'+esc(JSON.stringify({requests:d.requests,recent:d.recent_requests},null,2))+'</pre>'}catch(e){statusEl.textContent=String(e)}} 
+document.getElementById("search-form").addEventListener("submit",async e=>{e.preventDefault();output.textContent="Searching...";try{const q=encodeURIComponent(document.getElementById("q").value||"foundation");const r=await fetch("./api/v1/admin/test-search?q="+q,{headers:headers()});output.textContent=JSON.stringify(await r.json(),null,2)}catch(err){output.textContent=String(err)}})
+load();
+</script>
 </body></html>`))
 }
 
@@ -74,7 +86,7 @@ func adminTheme(r *http.Request) string {
 }
 
 func adminThemeCSS() string {
-	return `:root{--bg:#141417;--fg:#e8e8ec;--link:#93c5fd;--panel:#1c1c20;--border:#28282e}[data-theme="cinema-light"]{--bg:#f7f3ed;--fg:#201c18;--link:#9a3412;--panel:#fffaf3;--border:#ded1c0}[data-theme="cobalt-studio"]{--bg:#101623;--fg:#eef4ff;--link:#60a5fa;--panel:#172033;--border:#2d3f61}[data-theme="oxblood-noir"]{--bg:#170b10;--fg:#fff1f4;--link:#fb7185;--panel:#241018;--border:#4a2230}[data-theme="evergreen-studio"]{--bg:#0d1712;--fg:#ecfdf3;--link:#6ee7b7;--panel:#14241b;--border:#2b4b39}body{font-family:system-ui,sans-serif;margin:32px;line-height:1.5;background:var(--bg);color:var(--fg)}a{color:var(--link);text-decoration:none}li{margin:6px 0}ul{border:1px solid var(--border);background:var(--panel);border-radius:8px;padding:16px 16px 16px 34px;max-width:520px}`
+	return `:root{--bg:#141417;--fg:#e8e8ec;--muted:#a1a1aa;--link:#93c5fd;--panel:#1c1c20;--border:#28282e;--ok:#22c55e;--bad:#fb7185;--input:#101014}[data-theme="cinema-light"]{--bg:#f7f3ed;--fg:#201c18;--muted:#756b60;--link:#9a3412;--panel:#fffaf3;--border:#ded1c0;--input:#fff}[data-theme="cobalt-studio"]{--bg:#101623;--fg:#eef4ff;--muted:#afc2e2;--link:#60a5fa;--panel:#172033;--border:#2d3f61;--input:#0d1422}[data-theme="oxblood-noir"]{--bg:#170b10;--fg:#fff1f4;--muted:#f0a6b7;--link:#fb7185;--panel:#241018;--border:#4a2230;--input:#12070b}[data-theme="evergreen-studio"]{--bg:#0d1712;--fg:#ecfdf3;--muted:#9bd6b4;--link:#6ee7b7;--panel:#14241b;--border:#2b4b39;--input:#08110d}body{font-family:system-ui,sans-serif;margin:0;line-height:1.5;background:var(--bg);color:var(--fg)}.shell{max-width:1120px;margin:0 auto;padding:28px}.back{color:var(--link);text-decoration:none}.eyebrow{color:var(--muted);text-transform:uppercase;font-size:12px;letter-spacing:.08em}h1{margin:.2rem 0}h2{font-size:16px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}.panel{border:1px solid var(--border);background:var(--panel);border-radius:8px;padding:16px;margin-top:16px}.stack>*+*{margin-top:8px}.row{display:flex;gap:8px}input{min-width:0;flex:1;background:var(--input);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:9px}button{background:var(--link);border:0;border-radius:6px;padding:9px 12px;color:#08111f;font-weight:700}.badge{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:2px 8px;margin-right:6px;font-size:12px}.ok{color:var(--ok)}.bad{color:var(--bad)}.muted{color:var(--muted)}.output{overflow:auto;max-height:340px;background:var(--input);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--fg)}code{color:var(--link)}`
 }
 
 func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +165,7 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTestSearch(w http.ResponseWriter, r *http.Request) {
 	if s.deps.AudiobookBayClient == nil {
-		writeJSON(w, 503, map[string]any{"ok": false, "message": "not configured"})
+		writeJSON(w, 200, map[string]any{"ok": false, "message": "not configured", "items": []any{}})
 		return
 	}
 	query := r.URL.Query().Get("q")

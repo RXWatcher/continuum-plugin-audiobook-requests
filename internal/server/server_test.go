@@ -44,6 +44,31 @@ func TestAdminPageIncludesDownloadRiskGuidance(t *testing.T) {
 	}
 }
 
+func TestAdminPageIncludesSearchLabAndGuardrails(t *testing.T) {
+	h := server.New(server.Deps{})
+	r := httptest.NewRequest("GET", "/admin?theme=midnight-cinema", nil)
+	w := httptest.NewRecorder()
+	h.Handler().ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("code = %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{
+		`data-tab-target="readiness"`,
+		`data-tab-target="search-lab"`,
+		`data-tab-target="download-queue"`,
+		`data-tab-target="guardrails"`,
+		`Score explanation`,
+		`Magnet readiness`,
+		`Policy guardrails`,
+		`id="queue-output"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("admin page missing %q", want)
+		}
+	}
+}
+
 func TestCapabilitiesAudiobookRequestProvider(t *testing.T) {
 	h := server.New(server.Deps{})
 	r := httptest.NewRequest("GET", "/api/v1/capabilities", nil)

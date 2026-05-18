@@ -4,6 +4,9 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
+	"strings"
 	"sync"
 
 	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
@@ -88,6 +91,9 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	if cfg.BaseURL == "" {
 		return nil, fmt.Errorf("base_url is required")
 	}
+	if err := validateOriginURL(cfg.BaseURL, false); err != nil {
+		return nil, fmt.Errorf("base_url: %w", err)
+	}
 	switch cfg.DownloadMode {
 	case "", "scrape_only", "qbittorrent", "embedded":
 	default:
@@ -96,11 +102,24 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	if cfg.DownloadMode == "qbittorrent" && cfg.QBitURL == "" {
 		return nil, fmt.Errorf("qbittorrent_url is required when download_mode is qbittorrent")
 	}
+	if cfg.QBitURL != "" {
+		if err := validateOriginURL(cfg.QBitURL, true); err != nil {
+			return nil, fmt.Errorf("qbittorrent_url: %w", err)
+		}
+	}
 	if cfg.DownloadMode == "embedded" && cfg.EmbeddedDownloadDir == "" {
 		return nil, fmt.Errorf("embedded_download_dir is required when download_mode is embedded")
 	}
 	if cfg.EmbeddedListenPort < 0 || cfg.EmbeddedListenPort > 65535 {
 		return nil, fmt.Errorf("embedded_listen_port must be between 0 and 65535")
+	}
+	if cfg.SearchLimit < 0 || cfg.SearchLimit > 100 {
+		return nil, fmt.Errorf("search_limit must be between 0 and 100")
+	}
+	for _, tracker := range cfg.Trackers {
+		if err := validateTrackerURL(tracker); err != nil {
+			return nil, fmt.Errorf("trackers: %w", err)
+		}
 	}
 	if s.onCfg != nil {
 		if err := s.onCfg(cfg); err != nil {
@@ -111,6 +130,51 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	s.cfg = cfg
 	s.mu.Unlock()
 	return &pluginv1.ConfigureResponse{}, nil
+}
+
+func validateOriginURL(raw string, allowHTTP bool) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return fmt.Errorf("scheme must be http or https")
+	}
+	if u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf("must be an origin URL without credentials, query, or fragment")
+	}
+	if u.Scheme == "http" && !allowHTTP && !isLocalhost(u.Hostname()) {
+		return fmt.Errorf("must use https except for localhost")
+	}
+	return nil
+}
+
+func validateTrackerURL(raw string) error {
+	tracker := strings.TrimSpace(raw)
+	if tracker == "" {
+		return nil
+	}
+	u, err := url.Parse(tracker)
+	if err != nil {
+		return fmt.Errorf("%q is invalid: %w", tracker, err)
+	}
+	switch u.Scheme {
+	case "udp", "http", "https":
+	default:
+		return fmt.Errorf("%q has unsupported scheme", tracker)
+	}
+	if u.Host == "" || u.User != nil {
+		return fmt.Errorf("%q must include host and no credentials", tracker)
+	}
+	return nil
+}
+
+func isLocalhost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (s *Server) Snapshot() Config {

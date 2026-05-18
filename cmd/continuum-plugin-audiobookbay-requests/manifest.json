@@ -53,6 +53,21 @@
       "method": "*",
       "path": "/api/v1/*",
       "access": "authenticated"
+    },
+    {
+      "id": "admin",
+      "method": "GET",
+      "path": "/admin",
+      "access": "admin",
+      "navigable": true,
+      "navigation_label": "AudiobookBay Requests",
+      "navigation_kind": "admin"
+    },
+    {
+      "id": "admin_sub",
+      "method": "GET",
+      "path": "/admin/*",
+      "access": "admin"
     }
   ],
   "global_config_schema": [

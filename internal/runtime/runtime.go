@@ -86,10 +86,16 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 		}
 	}
 	if cfg.DatabaseURL == "" {
-		return nil, fmt.Errorf("database_url is required")
+		s.mu.Lock()
+		s.cfg = cfg
+		s.mu.Unlock()
+		return &pluginv1.ConfigureResponse{}, nil
 	}
-	if cfg.BaseURL == "" {
-		return nil, fmt.Errorf("base_url is required")
+	if !cfg.Configured() {
+		s.mu.Lock()
+		s.cfg = cfg
+		s.mu.Unlock()
+		return &pluginv1.ConfigureResponse{}, nil
 	}
 	if err := validateOriginURL(cfg.BaseURL, false); err != nil {
 		return nil, fmt.Errorf("base_url: %w", err)

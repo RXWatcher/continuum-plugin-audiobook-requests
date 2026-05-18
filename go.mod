@@ -2,10 +2,8 @@ module github.com/ContinuumApp/continuum-plugin-audiobookbay-requests
 
 go 1.26.0
 
-replace github.com/ContinuumApp/continuum-plugin-sdk => /opt/continuum_plugins/continuum-plugin-sdk
-
 require (
-	github.com/ContinuumApp/continuum-plugin-sdk v0.3.8
+	github.com/ContinuumApp/continuum-plugin-sdk v0.3.10
 	github.com/anacrolix/torrent v1.61.0
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/golang-migrate/migrate/v4 v4.19.1

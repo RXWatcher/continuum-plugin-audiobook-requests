@@ -77,8 +77,16 @@ func main() {
 			return fmt.Errorf("migrate: %w", err)
 		}
 		st := store.New(p)
+		appCfg, err := st.ImportLegacyAppConfig(ctx, cfg)
+		if err != nil {
+			p.Close()
+			return fmt.Errorf("import app config: %w", err)
+		}
+		appCfg.DatabaseURL = cfg.DatabaseURL
+		cfg = appCfg
+
 		var embeddedManager *embedded.Manager
-		if cfg.DownloadMode == "embedded" {
+		if cfg.ProviderConfigured() && cfg.DownloadMode == "embedded" {
 			embeddedManager, err = embedded.New(embedded.Config{
 				DownloadDir: cfg.EmbeddedDownloadDir,
 				ListenPort:  cfg.EmbeddedListenPort,
@@ -88,19 +96,22 @@ func main() {
 				return err
 			}
 		}
-		abbClient := audiobookbay.NewClient(audiobookbay.Config{
-			BaseURL:             cfg.BaseURL,
-			DownloadMode:        cfg.DownloadMode,
-			QBitURL:             cfg.QBitURL,
-			QBitUsername:        cfg.QBitUsername,
-			QBitPassword:        cfg.QBitPassword,
-			Category:            cfg.QBitCategory,
-			SavePath:            cfg.QBitSavePath,
-			EmbeddedDownloadDir: cfg.EmbeddedDownloadDir,
-			EmbeddedListenPort:  cfg.EmbeddedListenPort,
-			Trackers:            cfg.Trackers,
-			SearchLimit:         cfg.SearchLimit,
-		}, embeddedManager)
+		var abbClient *audiobookbay.Client
+		if cfg.ProviderConfigured() {
+			abbClient = audiobookbay.NewClient(audiobookbay.Config{
+				BaseURL:             cfg.BaseURL,
+				DownloadMode:        cfg.DownloadMode,
+				QBitURL:             cfg.QBitURL,
+				QBitUsername:        cfg.QBitUsername,
+				QBitPassword:        cfg.QBitPassword,
+				Category:            cfg.QBitCategory,
+				SavePath:            cfg.QBitSavePath,
+				EmbeddedDownloadDir: cfg.EmbeddedDownloadDir,
+				EmbeddedListenPort:  cfg.EmbeddedListenPort,
+				Trackers:            cfg.Trackers,
+				SearchLimit:         cfg.SearchLimit,
+			}, embeddedManager)
+		}
 		if embeddedManager != nil {
 			if rows, err := st.ListNonTerminal(ctx, 200); err == nil {
 				for _, row := range rows {
@@ -121,14 +132,19 @@ func main() {
 		httpSrv.SetHandler(srv.Handler())
 
 		ev := event.New(sdkruntime.Host(), logger.Named("event"))
-		consumerDepsP.Store(&consumer.Deps{
-			Store: st, Pub: ev, ABB: abbClient,
-			PluginID: "continuum.audiobookbay-requests",
-		})
-		reconcilerPtr.Store(reconciler.New(reconciler.Deps{
-			Store: st, Pub: ev, ABB: abbClient,
-			PluginID: "continuum.audiobookbay-requests",
-		}))
+		if abbClient != nil {
+			consumerDepsP.Store(&consumer.Deps{
+				Store: st, Pub: ev, ABB: abbClient,
+				PluginID: "continuum.audiobookbay-requests",
+			})
+			reconcilerPtr.Store(reconciler.New(reconciler.Deps{
+				Store: st, Pub: ev, ABB: abbClient,
+				PluginID: "continuum.audiobookbay-requests",
+			}))
+		} else {
+			consumerDepsP.Store(nil)
+			reconcilerPtr.Store(nil)
+		}
 
 		if old := embeddedPtr.Swap(embeddedManager); old != nil {
 			old.Close()

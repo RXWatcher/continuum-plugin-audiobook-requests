@@ -15,22 +15,26 @@ import (
 
 // Config is the parsed plugin global config (per spec Layer 9.3).
 type Config struct {
-	DatabaseURL         string
-	BaseURL             string
-	DownloadMode        string
-	QBitURL             string
-	QBitUsername        string
-	QBitPassword        string
-	QBitCategory        string
-	QBitSavePath        string
-	EmbeddedDownloadDir string
-	EmbeddedListenPort  int
-	Trackers            []string
-	SearchLimit         int
+	DatabaseURL         string   `json:"database_url,omitempty"`
+	BaseURL             string   `json:"base_url"`
+	DownloadMode        string   `json:"download_mode"`
+	QBitURL             string   `json:"qbittorrent_url"`
+	QBitUsername        string   `json:"qbittorrent_username"`
+	QBitPassword        string   `json:"qbittorrent_password,omitempty"`
+	QBitCategory        string   `json:"qbittorrent_category"`
+	QBitSavePath        string   `json:"qbittorrent_save_path"`
+	EmbeddedDownloadDir string   `json:"embedded_download_dir"`
+	EmbeddedListenPort  int      `json:"embedded_listen_port"`
+	Trackers            []string `json:"trackers"`
+	SearchLimit         int      `json:"search_limit"`
 }
 
 func (c Config) Configured() bool {
-	return c.BaseURL != "" && c.DatabaseURL != ""
+	return c.DatabaseURL != ""
+}
+
+func (c Config) ProviderConfigured() bool {
+	return c.BaseURL != ""
 }
 
 type Server struct {
@@ -91,41 +95,8 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 		s.mu.Unlock()
 		return &pluginv1.ConfigureResponse{}, nil
 	}
-	if !cfg.Configured() {
-		s.mu.Lock()
-		s.cfg = cfg
-		s.mu.Unlock()
-		return &pluginv1.ConfigureResponse{}, nil
-	}
-	if err := validateOriginURL(cfg.BaseURL, false); err != nil {
-		return nil, fmt.Errorf("base_url: %w", err)
-	}
-	switch cfg.DownloadMode {
-	case "", "scrape_only", "qbittorrent", "embedded":
-	default:
-		return nil, fmt.Errorf("download_mode must be scrape_only, qbittorrent, or embedded")
-	}
-	if cfg.DownloadMode == "qbittorrent" && cfg.QBitURL == "" {
-		return nil, fmt.Errorf("qbittorrent_url is required when download_mode is qbittorrent")
-	}
-	if cfg.QBitURL != "" {
-		if err := validateOriginURL(cfg.QBitURL, true); err != nil {
-			return nil, fmt.Errorf("qbittorrent_url: %w", err)
-		}
-	}
-	if cfg.DownloadMode == "embedded" && cfg.EmbeddedDownloadDir == "" {
-		return nil, fmt.Errorf("embedded_download_dir is required when download_mode is embedded")
-	}
-	if cfg.EmbeddedListenPort < 0 || cfg.EmbeddedListenPort > 65535 {
-		return nil, fmt.Errorf("embedded_listen_port must be between 0 and 65535")
-	}
-	if cfg.SearchLimit < 0 || cfg.SearchLimit > 100 {
-		return nil, fmt.Errorf("search_limit must be between 0 and 100")
-	}
-	for _, tracker := range cfg.Trackers {
-		if err := validateTrackerURL(tracker); err != nil {
-			return nil, fmt.Errorf("trackers: %w", err)
-		}
+	if err := ValidateAppConfig(cfg); err != nil {
+		return nil, err
 	}
 	if s.onCfg != nil {
 		if err := s.onCfg(cfg); err != nil {
@@ -136,6 +107,42 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 	s.cfg = cfg
 	s.mu.Unlock()
 	return &pluginv1.ConfigureResponse{}, nil
+}
+
+func ValidateAppConfig(cfg Config) error {
+	if cfg.BaseURL != "" {
+		if err := validateOriginURL(cfg.BaseURL, false); err != nil {
+			return fmt.Errorf("base_url: %w", err)
+		}
+	}
+	switch cfg.DownloadMode {
+	case "", "scrape_only", "qbittorrent", "embedded":
+	default:
+		return fmt.Errorf("download_mode must be scrape_only, qbittorrent, or embedded")
+	}
+	if cfg.DownloadMode == "qbittorrent" && cfg.QBitURL == "" {
+		return fmt.Errorf("qbittorrent_url is required when download_mode is qbittorrent")
+	}
+	if cfg.QBitURL != "" {
+		if err := validateOriginURL(cfg.QBitURL, true); err != nil {
+			return fmt.Errorf("qbittorrent_url: %w", err)
+		}
+	}
+	if cfg.DownloadMode == "embedded" && cfg.EmbeddedDownloadDir == "" {
+		return fmt.Errorf("embedded_download_dir is required when download_mode is embedded")
+	}
+	if cfg.EmbeddedListenPort < 0 || cfg.EmbeddedListenPort > 65535 {
+		return fmt.Errorf("embedded_listen_port must be between 0 and 65535")
+	}
+	if cfg.SearchLimit < 0 || cfg.SearchLimit > 100 {
+		return fmt.Errorf("search_limit must be between 0 and 100")
+	}
+	for _, tracker := range cfg.Trackers {
+		if err := validateTrackerURL(tracker); err != nil {
+			return fmt.Errorf("trackers: %w", err)
+		}
+	}
+	return nil
 }
 
 func validateOriginURL(raw string, allowHTTP bool) error {
@@ -186,7 +193,9 @@ func isLocalhost(host string) bool {
 func (s *Server) Snapshot() Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.cfg
+	c := s.cfg
+	c.Trackers = append([]string(nil), s.cfg.Trackers...)
+	return c
 }
 
 func stringFromValue(v any) string {

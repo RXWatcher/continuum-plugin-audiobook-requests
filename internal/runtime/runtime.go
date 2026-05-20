@@ -23,8 +23,12 @@ type Config struct {
 	QBitPassword        string   `json:"qbittorrent_password,omitempty"`
 	QBitCategory        string   `json:"qbittorrent_category"`
 	QBitSavePath        string   `json:"qbittorrent_save_path"`
-	EmbeddedDownloadDir string   `json:"embedded_download_dir"`
-	EmbeddedListenPort  int      `json:"embedded_listen_port"`
+	EmbeddedDownloadDir   string `json:"embedded_download_dir"`
+	EmbeddedListenPort    int    `json:"embedded_listen_port"`
+	// EmbeddedMaxConcurrent caps in-process torrents at any one time. 0 or
+	// negative defers to the embedded package's default. Bump if you've
+	// sized fd limits + connection-tracking accordingly.
+	EmbeddedMaxConcurrent int `json:"embedded_max_concurrent"`
 	Trackers            []string `json:"trackers"`
 	SearchLimit         int      `json:"search_limit"`
 }
@@ -83,6 +87,8 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 			cfg.EmbeddedDownloadDir = stringFromValue(m["value"])
 		case "embedded_listen_port":
 			cfg.EmbeddedListenPort = intFromValue(m["value"])
+		case "embedded_max_concurrent":
+			cfg.EmbeddedMaxConcurrent = intFromValue(m["value"])
 		case "trackers":
 			cfg.Trackers = stringSliceFromValue(m["value"])
 		case "search_limit":
@@ -133,6 +139,9 @@ func ValidateAppConfig(cfg Config) error {
 	}
 	if cfg.EmbeddedListenPort < 0 || cfg.EmbeddedListenPort > 65535 {
 		return fmt.Errorf("embedded_listen_port must be between 0 and 65535")
+	}
+	if cfg.EmbeddedMaxConcurrent < 0 || cfg.EmbeddedMaxConcurrent > 64 {
+		return fmt.Errorf("embedded_max_concurrent must be between 0 and 64")
 	}
 	if cfg.SearchLimit < 0 || cfg.SearchLimit > 100 {
 		return fmt.Errorf("search_limit must be between 0 and 100")

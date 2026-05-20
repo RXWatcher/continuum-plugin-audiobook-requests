@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -231,6 +232,160 @@ func stringPtr(v string) *string {
 		return nil
 	}
 	return &v
+}
+
+// ListRequests returns a page of forwarded_request rows, newest first,
+// with optional status filter and search across request_id / external_id /
+// selected_title. limit is clamped to [1, 200]. Returns total count for
+// pagination UX.
+func (s *Store) ListRequests(ctx context.Context, status, search string, limit, offset int) ([]ForwardedRequest, int, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	conds := []string{"TRUE"}
+	args := []any{}
+	idx := 1
+	if status != "" {
+		conds = append(conds, fmt.Sprintf("status = $%d", idx))
+		args = append(args, status)
+		idx++
+	}
+	if search != "" {
+		conds = append(conds, fmt.Sprintf("(request_id ILIKE $%d OR external_id ILIKE $%d OR selected_title ILIKE $%d OR search_query ILIKE $%d)", idx, idx, idx, idx))
+		args = append(args, "%"+search+"%")
+		idx++
+	}
+	where := strings.Join(conds, " AND ")
+
+	var total int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM forwarded_request WHERE `+where, args...,
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count requests: %w", err)
+	}
+
+	args = append(args, limit, offset)
+	rows, err := s.pool.Query(ctx, `
+		SELECT request_id, COALESCE(external_id,''), status,
+		       COALESCE(source_id,''), COALESCE(search_query,''), COALESCE(selected_title,''),
+		       COALESCE(detail_url,''), COALESCE(info_hash,''), COALESCE(magnet_uri,''),
+		       selected_score, COALESCE(selected_score_reason,''),
+		       COALESCE(last_polled, '0001-01-01 00:00:00'::timestamptz),
+		       COALESCE(error_text,''), created_at, updated_at
+		FROM forwarded_request
+		WHERE `+where+`
+		ORDER BY created_at DESC
+		LIMIT $`+fmt.Sprint(idx)+` OFFSET $`+fmt.Sprint(idx+1), args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list requests: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ForwardedRequest
+	for rows.Next() {
+		var r ForwardedRequest
+		if err := rows.Scan(&r.RequestID, &r.ExternalID, &r.Status,
+			&r.SourceID, &r.SearchQuery, &r.SelectedTitle, &r.DetailURL, &r.InfoHash,
+			&r.MagnetURI, &r.SelectedScore, &r.SelectedScoreReason, &r.LastPolled,
+			&r.ErrorText, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scan: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, total, nil
+}
+
+// ListStuck returns non-terminal rows with no progress (no poll) in the
+// trailing `threshold` window. Used by the admin "stuck requests" tile to
+// surface rows that need attention.
+func (s *Store) ListStuck(ctx context.Context, threshold time.Duration, limit int) ([]ForwardedRequest, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	cutoff := time.Now().Add(-threshold)
+	rows, err := s.pool.Query(ctx, `
+		SELECT request_id, COALESCE(external_id,''), status,
+		       COALESCE(source_id,''), COALESCE(search_query,''), COALESCE(selected_title,''),
+		       COALESCE(detail_url,''), COALESCE(info_hash,''), COALESCE(magnet_uri,''),
+		       selected_score, COALESCE(selected_score_reason,''),
+		       COALESCE(last_polled, '0001-01-01 00:00:00'::timestamptz),
+		       COALESCE(error_text,''), created_at, updated_at
+		FROM forwarded_request
+		WHERE status NOT IN ('imported','failed')
+		  AND (
+		    (last_polled IS NOT NULL AND last_polled < $1)
+		    OR (last_polled IS NULL AND created_at < $1)
+		  )
+		ORDER BY created_at ASC
+		LIMIT $2`, cutoff, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list stuck: %w", err)
+	}
+	defer rows.Close()
+	var out []ForwardedRequest
+	for rows.Next() {
+		var r ForwardedRequest
+		if err := rows.Scan(&r.RequestID, &r.ExternalID, &r.Status,
+			&r.SourceID, &r.SearchQuery, &r.SelectedTitle, &r.DetailURL, &r.InfoHash,
+			&r.MagnetURI, &r.SelectedScore, &r.SelectedScoreReason, &r.LastPolled,
+			&r.ErrorText, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// RetryRequest resets a row to 'acknowledged' (preserving identifiers) so
+// the reconciler picks it up. No-op if the row is gone or never got an
+// external_id.
+func (s *Store) RetryRequest(ctx context.Context, requestID string) error {
+	if requestID == "" {
+		return fmt.Errorf("request_id required")
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE forwarded_request
+		SET status = 'acknowledged',
+		    error_text = NULL,
+		    last_polled = NULL,
+		    updated_at = now()
+		WHERE request_id = $1
+		  AND external_id IS NOT NULL
+		  AND external_id <> ''`, requestID)
+	if err != nil {
+		return fmt.Errorf("retry: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// MarkFailedManually drives a row to terminal 'failed' with an operator
+// reason. For force-clearing rows the reconciler can't progress.
+func (s *Store) MarkFailedManually(ctx context.Context, requestID, reason string) error {
+	if requestID == "" {
+		return fmt.Errorf("request_id required")
+	}
+	if reason == "" {
+		reason = "marked failed by admin"
+	}
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE forwarded_request
+		SET status = 'failed',
+		    error_text = $2,
+		    updated_at = now()
+		WHERE request_id = $1`, requestID, reason)
+	if err != nil {
+		return fmt.Errorf("mark failed: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) RequestStats(ctx context.Context) (RequestStats, error) {

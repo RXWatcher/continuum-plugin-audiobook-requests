@@ -61,7 +61,9 @@ func TestAdminPageIncludesSearchLabAndGuardrails(t *testing.T) {
 		`Score explanation`,
 		`Magnet readiness`,
 		`Policy guardrails`,
-		`id="queue-output"`,
+		`id="queue-table"`,
+		`id="reconciler-status"`,
+		`id="reconcile-now"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("admin page missing %q", want)

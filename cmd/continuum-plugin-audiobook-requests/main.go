@@ -88,8 +88,9 @@ func main() {
 		var embeddedManager *embedded.Manager
 		if cfg.ProviderConfigured() && cfg.DownloadMode == "embedded" {
 			embeddedManager, err = embedded.New(embedded.Config{
-				DownloadDir: cfg.EmbeddedDownloadDir,
-				ListenPort:  cfg.EmbeddedListenPort,
+				DownloadDir:   cfg.EmbeddedDownloadDir,
+				ListenPort:    cfg.EmbeddedListenPort,
+				MaxConcurrent: cfg.EmbeddedMaxConcurrent,
 			})
 			if err != nil {
 				p.Close()
@@ -124,27 +125,30 @@ func main() {
 			}
 		}
 
-		srv := server.New(server.Deps{
-			AudiobookBayClient: abbClient,
-			Store:              st,
-			Config:             cfg,
-		})
-		httpSrv.SetHandler(srv.Handler())
-
 		ev := event.New(sdkruntime.Host(), logger.Named("event"))
+		var rc *reconciler.Reconciler
 		if abbClient != nil {
 			consumerDepsP.Store(&consumer.Deps{
 				Store: st, Pub: ev, ABB: abbClient,
 				PluginID: "continuum.audiobook-requests",
 			})
-			reconcilerPtr.Store(reconciler.New(reconciler.Deps{
+			rc = reconciler.New(reconciler.Deps{
 				Store: st, Pub: ev, ABB: abbClient,
 				PluginID: "continuum.audiobook-requests",
-			}))
+			})
+			reconcilerPtr.Store(rc)
 		} else {
 			consumerDepsP.Store(nil)
 			reconcilerPtr.Store(nil)
 		}
+
+		srv := server.New(server.Deps{
+			AudiobookBayClient: abbClient,
+			Store:              st,
+			Reconciler:         rc,
+			Config:             cfg,
+		})
+		httpSrv.SetHandler(srv.Handler())
 
 		if old := embeddedPtr.Swap(embeddedManager); old != nil {
 			old.Close()

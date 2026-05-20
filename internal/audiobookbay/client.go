@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,12 +12,112 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/embedded"
 	"golang.org/x/net/html"
 )
+
+// RateLimitError signals the upstream returned 429. Reconciler uses it to
+// park the whole poll loop for the Retry-After window rather than burn
+// budget on calls that will all 429.
+type RateLimitError struct {
+	RetryAfter time.Duration
+	Body       string
+}
+
+func (e *RateLimitError) Error() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("audiobookbay 429 (retry after %s): %s", e.RetryAfter, e.Body)
+	}
+	return fmt.Sprintf("audiobookbay 429: %s", e.Body)
+}
+
+// IsRateLimited unwraps to *RateLimitError if present.
+func IsRateLimited(err error) (*RateLimitError, bool) {
+	var rl *RateLimitError
+	if errors.As(err, &rl) {
+		return rl, true
+	}
+	return nil, false
+}
+
+// BlockedError signals the upstream returned a Cloudflare interstitial,
+// captcha challenge, or similar bot-protection response. The HTTP status
+// is often 200 in these cases (the proxy serves a challenge page), so the
+// caller can't distinguish "no results" from "blocked" without sniffing
+// the body. The error carries a short hint about which signature matched.
+type BlockedError struct {
+	Hint string
+}
+
+func (e *BlockedError) Error() string {
+	return fmt.Sprintf("audiobookbay blocked: %s", e.Hint)
+}
+
+// IsBlocked unwraps to *BlockedError if present.
+func IsBlocked(err error) (*BlockedError, bool) {
+	var be *BlockedError
+	if errors.As(err, &be) {
+		return be, true
+	}
+	return nil, false
+}
+
+// blockSignatures are HTML substrings that strongly indicate a bot
+// challenge / IP block / WAF interception rather than a legitimate empty
+// search. Matched case-insensitively against the response body. Kept
+// conservative — false positives turn benign searches into reconciler
+// backoff, false negatives just look like "no results" until the operator
+// runs a test search and notices.
+// blockSignatures is scanned in order; more-specific phrases come first so
+// the returned hint is the most useful one (e.g. "hcaptcha" rather than the
+// generic "captcha"). Adding a substring? Put it above its more general
+// neighbour.
+var blockSignatures = []string{
+	"hcaptcha",
+	"h-captcha", // canonical hCaptcha widget class is hyphenated
+	"recaptcha",
+	"attention required",
+	"checking your browser",
+	"please enable javascript",
+	"bot protection",
+	"access denied",
+	"captcha",
+	"cloudflare",
+}
+
+// DetectBlocked scans body for a known challenge signature and returns the
+// first hit. Exported so tests can pin specific page variants.
+func DetectBlocked(body string) string {
+	lower := strings.ToLower(body)
+	for _, sig := range blockSignatures {
+		if strings.Contains(lower, sig) {
+			return sig
+		}
+	}
+	return ""
+}
+
+func parseRetryAfter(h string) time.Duration {
+	h = strings.TrimSpace(h)
+	if h == "" {
+		return 0
+	}
+	if n, err := strconv.Atoi(h); err == nil && n >= 0 {
+		return time.Duration(n) * time.Second
+	}
+	if t, err := http.ParseTime(h); err == nil {
+		d := time.Until(t)
+		if d < 0 {
+			return 0
+		}
+		return d
+	}
+	return 0
+}
 
 const (
 	defaultTimeout  = 30 * time.Second
@@ -310,8 +411,30 @@ func (c *Client) get(ctx context.Context, rawURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return "", &RateLimitError{
+			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")),
+			Body:       truncForError(body),
+		}
+	}
+	// 403 with a small HTML body is the canonical Cloudflare/WAF block. Flag
+	// it explicitly so reconciler + admin UI can distinguish "the site
+	// dropped us" from "the page just had no results".
+	if resp.StatusCode == http.StatusForbidden {
+		if hint := DetectBlocked(string(body)); hint != "" {
+			return "", &BlockedError{Hint: hint + " (HTTP 403)"}
+		}
+		return "", &BlockedError{Hint: fmt.Sprintf("HTTP 403: %s", truncForError(body))}
+	}
 	if resp.StatusCode >= 400 {
 		return "", fmt.Errorf("audiobookbay %d: %s", resp.StatusCode, truncForError(body))
+	}
+	// 200 + challenge HTML (Cloudflare's interstitial, hCaptcha page, etc.)
+	// is the most insidious failure mode: the parser would return 0 hits
+	// and the operator would think AudiobookBay had no matches. Sniff the
+	// body and surface the block explicitly.
+	if hint := DetectBlocked(string(body)); hint != "" {
+		return "", &BlockedError{Hint: hint}
 	}
 	return string(body), nil
 }

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/audiobookbay"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
 )
 
 // AudiobookBay is an untrusted scraped site. A broken/hostile error response

@@ -8,7 +8,7 @@ import (
 
 	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/reconciler"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/reconciler"
 )
 
 // taskID extracts the capability id from a scheduled-task key. The Continuum

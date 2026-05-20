@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/embedded"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/embedded"
 )
 
 const bigBuckBunnyMagnet = "magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Fexplodie.org%3A6969&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&xs=https%3A%2F%2Fwebtorrent.io%2Ftorrents%2Fbig-buck-bunny.torrent"

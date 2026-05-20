@@ -1,6 +1,6 @@
-# AudiobookBay Requests for Continuum
+# Audiobook Requests for Continuum
 
-`continuum.audiobookbay-requests` is a request provider for the Continuum
+`continuum.audiobook-requests` is a request provider for the Continuum
 Audiobooks portal. It searches AudiobookBay, resolves a selected result to an
 info hash or magnet URI, and hands the request to either scrape-only mode,
 qBittorrent, or the plugin's experimental embedded torrent downloader.
@@ -44,7 +44,7 @@ AudiobookBay pages and does not require signing in.
 
 | Key | Required | Description |
 |---|---|---|
-| `database_url` | yes | Postgres DSN for the dedicated `audiobookbay_requests` schema. |
+| `database_url` | yes | Postgres DSN for the dedicated `audiobook_requests` schema. |
 | `base_url` | yes | AudiobookBay base URL, for example `https://audiobookbay.lu`. |
 | `download_mode` | no | `scrape_only`, `qbittorrent`, or `embedded`. Defaults to qBittorrent when a qBittorrent URL is set, otherwise scrape-only. |
 | `qbittorrent_url` | no | qBittorrent Web API base URL. Required for qBittorrent mode. |
@@ -60,15 +60,15 @@ AudiobookBay pages and does not require signing in.
 Example DSN:
 
 ```text
-postgres://plugin_audiobookbay_requests:password@postgres:5432/continuum?search_path=audiobookbay_requests&sslmode=disable
+postgres://plugin_audiobook_requests:password@postgres:5432/continuum?search_path=audiobook_requests&sslmode=disable
 ```
 
 ## Database Setup
 
 ```sql
-CREATE ROLE plugin_audiobookbay_requests WITH LOGIN PASSWORD '<chosen>';
-CREATE SCHEMA audiobookbay_requests AUTHORIZATION plugin_audiobookbay_requests;
-GRANT CONNECT ON DATABASE continuum TO plugin_audiobookbay_requests;
+CREATE ROLE plugin_audiobook_requests WITH LOGIN PASSWORD '<chosen>';
+CREATE SCHEMA audiobook_requests AUTHORIZATION plugin_audiobook_requests;
+GRANT CONNECT ON DATABASE continuum TO plugin_audiobook_requests;
 ```
 
 The plugin runs its own migrations in the configured schema.
@@ -106,5 +106,5 @@ changes.
 
 ```bash
 go test ./...
-go build -buildvcs=false -o continuum-plugin-audiobookbay-requests ./cmd/continuum-plugin-audiobookbay-requests
+go build -buildvcs=false -o continuum-plugin-audiobook-requests ./cmd/continuum-plugin-audiobook-requests
 ```

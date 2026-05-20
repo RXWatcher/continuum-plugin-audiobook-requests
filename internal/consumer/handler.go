@@ -13,8 +13,8 @@ import (
 
 	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/audiobookbay"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/store"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/store"
 )
 
 type Publisher interface {

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/audiobookbay"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/store"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/store"
 )
 
 // tickTimeout caps a full Tick invocation. The scheduler fires this task on

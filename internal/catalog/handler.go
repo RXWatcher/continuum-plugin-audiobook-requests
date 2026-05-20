@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/audiobookbay"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
 )
 
 type Handler struct {
@@ -85,7 +85,7 @@ func (h *Handler) RequestSnapshot() http.HandlerFunc {
 }
 
 func notCatalogProvider(w http.ResponseWriter, _ *http.Request) {
-	http.Error(w, "AudiobookBay Requests is a request provider, not a catalog backend", http.StatusNotImplemented)
+	http.Error(w, "Audiobook Requests is a request provider, not a catalog backend", http.StatusNotImplemented)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

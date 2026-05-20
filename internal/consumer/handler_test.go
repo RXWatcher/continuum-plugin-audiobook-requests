@@ -11,9 +11,9 @@ import (
 
 	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/audiobookbay"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/consumer"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/store"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/consumer"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/store"
 )
 
 type fakePub struct {
@@ -50,7 +50,7 @@ func newConsumerForTest(t *testing.T, upstream *httptest.Server) (*consumer.Hand
 	ebk := audiobookbay.NewClient(audiobookbay.Config{BaseURL: upstream.URL, QBitURL: qbt.URL}, nil)
 	deps := &consumer.Deps{
 		Store: st, Pub: pub, ABB: ebk,
-		PluginID: "continuum.audiobookbay-requests",
+		PluginID: "continuum.audiobook-requests",
 	}
 	h := consumer.New(func() *consumer.Deps { return deps }, nil)
 	return h, pub, st
@@ -73,7 +73,7 @@ func TestConsumer_HappyPath_EmitsAcknowledged(t *testing.T) {
 		EventName: "plugin.continuum.audiobooks.request_submitted",
 		Payload: mustStruct(t, map[string]any{
 			"request_id":       "r-1",
-			"target_plugin_id": "continuum.audiobookbay-requests",
+			"target_plugin_id": "continuum.audiobook-requests",
 			"title":            "Book",
 		}),
 	})
@@ -99,7 +99,7 @@ func TestConsumer_MissingQuery_EmitsFailed(t *testing.T) {
 		EventName: "plugin.continuum.audiobooks.request_submitted",
 		Payload: mustStruct(t, map[string]any{
 			"request_id":       "r-2",
-			"target_plugin_id": "continuum.audiobookbay-requests",
+			"target_plugin_id": "continuum.audiobook-requests",
 		}),
 	})
 	if len(pub.pubs) != 1 || pub.pubs[0].Name != "request_failed" {
@@ -155,7 +155,7 @@ func TestConsumer_NotConfigured_Nacks(t *testing.T) {
 		EventName: "plugin.continuum.audiobooks.request_submitted",
 		Payload: mustStruct(t, map[string]any{
 			"request_id":       "r-cfg",
-			"target_plugin_id": "continuum.audiobookbay-requests",
+			"target_plugin_id": "continuum.audiobook-requests",
 			"title":            "X",
 		}),
 	})

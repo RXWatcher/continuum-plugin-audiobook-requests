@@ -1,6 +1,6 @@
-# AudiobookBay Requests Setup, Debugging, And Flows
+# Audiobook Requests Setup, Debugging, And Flows
 
-Plugin ID: `continuum.audiobookbay-requests`
+Plugin ID: `continuum.audiobook-requests`
 Version documented: `0.1.0`
 
 ## Purpose

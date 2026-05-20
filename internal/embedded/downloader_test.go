@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/embedded"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/embedded"
 )
 
 func TestManagerStartsAndReportsUnknownQueued(t *testing.T) {

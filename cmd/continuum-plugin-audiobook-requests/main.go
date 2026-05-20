@@ -17,24 +17,24 @@ import (
 	publicmanifest "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginsdk/manifest"
 	sdkruntime "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginsdk/runtime"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/audiobookbay"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/consumer"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/embedded"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/event"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/httproutes"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/migrate"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/reconciler"
-	pluginrt "github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/runtime"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/scheduler"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/server"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/store"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/consumer"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/embedded"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/event"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/httproutes"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/migrate"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/reconciler"
+	pluginrt "github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/runtime"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/scheduler"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/server"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/store"
 )
 
 //go:embed manifest.json
 var manifestRaw []byte
 
 func main() {
-	logger := hclog.New(&hclog.LoggerOptions{Name: "continuum-plugin-audiobookbay-requests"})
+	logger := hclog.New(&hclog.LoggerOptions{Name: "continuum-plugin-audiobook-requests"})
 
 	manifest, err := loadManifest()
 	if err != nil {
@@ -135,11 +135,11 @@ func main() {
 		if abbClient != nil {
 			consumerDepsP.Store(&consumer.Deps{
 				Store: st, Pub: ev, ABB: abbClient,
-				PluginID: "continuum.audiobookbay-requests",
+				PluginID: "continuum.audiobook-requests",
 			})
 			reconcilerPtr.Store(reconciler.New(reconciler.Deps{
 				Store: st, Pub: ev, ABB: abbClient,
-				PluginID: "continuum.audiobookbay-requests",
+				PluginID: "continuum.audiobook-requests",
 			}))
 		} else {
 			consumerDepsP.Store(nil)

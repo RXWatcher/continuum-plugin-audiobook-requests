@@ -9,8 +9,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/audiobookbay"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/catalog"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/catalog"
 )
 
 func newRouter(c *audiobookbay.Client) *chi.Mux {

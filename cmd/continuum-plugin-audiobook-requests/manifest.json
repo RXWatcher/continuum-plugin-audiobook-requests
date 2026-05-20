@@ -1,8 +1,9 @@
 {
-  "plugin_id": "continuum.audiobookbay-requests",
+  "plugin_id": "continuum.audiobook-requests",
   "version": "1.0.0",
   "checksum": "1250f06209dc3fbfffe6bf2b475003cc8f49f8e64f1b75faeb2e1e22c93ed38e",
   "continuum_api_version": "v1",
+  "category": "Books/Audiobooks",
   "supported_platforms": [
     {
       "os": "linux",
@@ -13,7 +14,7 @@
     {
       "type": "http_routes.v1",
       "id": "backend",
-      "display_name": "AudiobookBay Requests API",
+      "display_name": "Audiobook Requests API",
       "description": "Request-provider API for scored AudiobookBay search, magnet resolution, diagnostics, and optional qBittorrent enqueueing."
     },
     {
@@ -28,7 +29,7 @@
     {
       "type": "audiobook_backend.v1",
       "id": "default",
-      "display_name": "AudiobookBay Requests",
+      "display_name": "Audiobook Requests",
       "description": "Scraper-based audiobook request provider backed by AudiobookBay with optional qBittorrent enqueueing; not a presentation library source.",
       "metadata": {
         "audiobook_roles": [
@@ -60,7 +61,7 @@
       "path": "/admin",
       "access": "admin",
       "navigable": true,
-      "navigation_label": "AudiobookBay Requests",
+      "navigation_label": "Audiobook Requests",
       "navigation_kind": "admin"
     },
     {

@@ -11,10 +11,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/audiobookbay"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/catalog"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/runtime"
-	"github.com/ContinuumApp/continuum-plugin-audiobookbay-requests/internal/store"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/catalog"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/runtime"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/store"
 )
 
 type Deps struct {
@@ -91,11 +91,11 @@ func (s *Server) handleAdminHome(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write([]byte(`<!doctype html>
 <html lang="en" data-theme="` + adminTheme(r) + `">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AudiobookBay Requests</title><style>` + adminThemeCSS() + `</style></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Audiobook Requests</title><style>` + adminThemeCSS() + `</style></head>
 <body>
 <main class="shell">
 <a class="back" href="/admin/plugins">&larr; Plugins</a>
-<header><p class="eyebrow">Audiobook request provider</p><h1>AudiobookBay Requests</h1><p>Search, magnet resolution, download handoff, and request reconciliation for the Audiobooks portal.</p></header>
+<header><p class="eyebrow">Audiobook request provider</p><h1>Audiobook Requests</h1><p>Search, magnet resolution, download handoff, and request reconciliation for the Audiobooks portal.</p></header>
 <nav class="tabs" aria-label="AudiobookBay admin sections">
 <button class="tab active" data-tab-target="readiness" type="button">Readiness</button>
 <button class="tab" data-tab-target="config" type="button">Config</button>
@@ -202,7 +202,7 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, map[string]any{
-		"plugin_id":     "continuum.audiobookbay-requests",
+		"plugin_id":     "continuum.audiobook-requests",
 		"role":          "request_provider",
 		"configured":    s.deps.Config.ProviderConfigured(),
 		"base_url":      s.deps.Config.BaseURL,

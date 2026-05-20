@@ -1,4 +1,4 @@
-module github.com/ContinuumApp/continuum-plugin-audiobookbay-requests
+module github.com/ContinuumApp/continuum-plugin-audiobook-requests
 
 go 1.26.0
 

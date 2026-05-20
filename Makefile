@@ -1,9 +1,9 @@
-BINARY := continuum-plugin-audiobookbay-requests
+BINARY := continuum-plugin-audiobook-requests
 GO ?= go
 
 .PHONY: build test clean
 build:
-	$(GO) build -o $(BINARY) ./cmd/continuum-plugin-audiobookbay-requests
+	$(GO) build -o $(BINARY) ./cmd/continuum-plugin-audiobook-requests
 test:
 	$(GO) test ./...
 clean:

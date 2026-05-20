@@ -43,18 +43,47 @@ type Config struct {
 
 	// NZBGet handoff. Required when abook is configured; the abook source
 	// doesn't produce magnets, so without NZBGet there's nothing to do
-	// with a winning hit.
+	// with a winning hit. In download_mode=embedded_nzbget these are
+	// auto-filled from the supervised daemon and any operator-provided
+	// values are ignored.
 	NZBGetURL      string `json:"nzbget_url"`
 	NZBGetUsername string `json:"nzbget_username"`
 	NZBGetPassword string `json:"nzbget_password,omitempty"`
 	NZBGetCategory string `json:"nzbget_category"`
+
+	// Usenet provider credentials, used by the embedded NZBGet daemon
+	// (download_mode=embedded_nzbget). Independent of the NZBGetUsername
+	// /Password above — those gate NZBGet's RPC port; these are what
+	// NZBGet uses to fetch articles from the operator's news provider.
+	UsenetHost        string `json:"usenet_host"`
+	UsenetPort        int    `json:"usenet_port"`
+	UsenetSSL         bool   `json:"usenet_ssl"`
+	UsenetUsername    string `json:"usenet_username"`
+	UsenetPassword    string `json:"usenet_password,omitempty"`
+	UsenetConnections int    `json:"usenet_connections"`
 }
 
 // AbookConfigured reports whether the abook+nzbget pipeline has enough
-// configuration to participate in searches. Both ends need to be set —
-// credentials without NZBGet would produce hits the plugin can't dispatch.
+// configuration to participate in searches. With download_mode=embedded
+// _nzbget the NZBGet leg is provided by the supervised daemon, so the
+// operator-supplied NZBGetURL isn't required in that mode.
 func (c Config) AbookConfigured() bool {
-	return c.AbookEmail != "" && c.AbookPassword != "" && c.NZBGetURL != ""
+	if c.AbookEmail == "" || c.AbookPassword == "" {
+		return false
+	}
+	if c.DownloadMode == "embedded_nzbget" {
+		return c.EmbeddedNZBGetConfigured()
+	}
+	return c.NZBGetURL != ""
+}
+
+// EmbeddedNZBGetConfigured reports whether the operator has provided
+// every field the embedded NZBGet daemon needs to fetch articles from
+// their news provider.
+func (c Config) EmbeddedNZBGetConfigured() bool {
+	return c.UsenetHost != "" && c.UsenetPort > 0 &&
+		c.UsenetUsername != "" && c.UsenetPassword != "" &&
+		c.EmbeddedDownloadDir != ""
 }
 
 func (c Config) Configured() bool {
@@ -129,6 +158,18 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 			cfg.NZBGetPassword = stringFromValue(m["value"])
 		case "nzbget_category":
 			cfg.NZBGetCategory = stringFromValue(m["value"])
+		case "usenet_host":
+			cfg.UsenetHost = stringFromValue(m["value"])
+		case "usenet_port":
+			cfg.UsenetPort = intFromValue(m["value"])
+		case "usenet_ssl":
+			cfg.UsenetSSL = boolFromValue(m["value"])
+		case "usenet_username":
+			cfg.UsenetUsername = stringFromValue(m["value"])
+		case "usenet_password":
+			cfg.UsenetPassword = stringFromValue(m["value"])
+		case "usenet_connections":
+			cfg.UsenetConnections = intFromValue(m["value"])
 		case "trackers":
 			cfg.Trackers = stringSliceFromValue(m["value"])
 		case "search_limit":
@@ -162,9 +203,28 @@ func ValidateAppConfig(cfg Config) error {
 		}
 	}
 	switch cfg.DownloadMode {
-	case "", "scrape_only", "qbittorrent", "embedded":
+	case "", "scrape_only", "qbittorrent", "embedded", "embedded_nzbget":
 	default:
-		return fmt.Errorf("download_mode must be scrape_only, qbittorrent, or embedded")
+		return fmt.Errorf("download_mode must be scrape_only, qbittorrent, embedded, or embedded_nzbget")
+	}
+	if cfg.DownloadMode == "embedded_nzbget" {
+		// All four parts of the usenet provider config are load-bearing —
+		// the supervised daemon refuses to start without a working
+		// Server1.* block. Validate up-front so the operator sees the
+		// problem on Save, not after the daemon refuses to come up.
+		if cfg.UsenetHost == "" || cfg.UsenetPort == 0 ||
+			cfg.UsenetUsername == "" || cfg.UsenetPassword == "" {
+			return fmt.Errorf("usenet_host, usenet_port, usenet_username, and usenet_password are all required when download_mode is embedded_nzbget")
+		}
+		if cfg.EmbeddedDownloadDir == "" {
+			return fmt.Errorf("embedded_download_dir is required when download_mode is embedded_nzbget (used as the NZBGet working dir)")
+		}
+	}
+	if cfg.UsenetPort < 0 || cfg.UsenetPort > 65535 {
+		return fmt.Errorf("usenet_port must be between 0 and 65535")
+	}
+	if cfg.UsenetConnections < 0 || cfg.UsenetConnections > 64 {
+		return fmt.Errorf("usenet_connections must be between 0 and 64 (0 = default 8)")
 	}
 	if cfg.DownloadMode == "qbittorrent" && cfg.QBitURL == "" {
 		return fmt.Errorf("qbittorrent_url is required when download_mode is qbittorrent")
@@ -297,4 +357,11 @@ func intFromValue(v any) int {
 		return n
 	}
 	return 0
+}
+
+func boolFromValue(v any) bool {
+	if b, ok := v.(bool); ok {
+		return b
+	}
+	return false
 }

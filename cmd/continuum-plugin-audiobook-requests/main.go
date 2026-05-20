@@ -9,6 +9,7 @@ import (
 	"os"
 	goruntime "runtime"
 	"sync/atomic"
+	"time"
 
 	"github.com/hashicorp/go-hclog"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,6 +22,7 @@ import (
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/consumer"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/embedded"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/embeddednzbget"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/event"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/httproutes"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/migrate"
@@ -64,10 +66,11 @@ func main() {
 	httpSrv.SetHandler(server.New(server.Deps{}).Handler())
 
 	var (
-		poolPtr       atomic.Pointer[pgxpool.Pool]
-		embeddedPtr   atomic.Pointer[embedded.Manager]
-		consumerDepsP atomic.Pointer[consumer.Deps]
-		reconcilerPtr atomic.Pointer[reconciler.Reconciler]
+		poolPtr           atomic.Pointer[pgxpool.Pool]
+		embeddedPtr       atomic.Pointer[embedded.Manager]
+		embeddedNZBGetPtr atomic.Pointer[embeddednzbget.Manager]
+		consumerDepsP     atomic.Pointer[consumer.Deps]
+		reconcilerPtr     atomic.Pointer[reconciler.Reconciler]
 	)
 
 	consumerHandler := consumer.New(func() *consumer.Deps { return consumerDepsP.Load() }, logger.Named("consumer"))
@@ -145,6 +148,48 @@ func main() {
 
 		ev := event.New(sdkruntime.Host(), logger.Named("event"))
 
+		// Spin up the embedded NZBGet supervisor when the operator
+		// asked for download_mode=embedded_nzbget. Started before the
+		// nzbget RPC client below so we can overwrite the operator-
+		// supplied creds with the supervised daemon's loopback URL +
+		// generated credentials — the abook+nzbking path then talks
+		// to our local daemon instead of an external one.
+		var nzbgetSupervisor *embeddednzbget.Manager
+		if cfg.DownloadMode == "embedded_nzbget" && cfg.EmbeddedNZBGetConfigured() {
+			sup, sErr := embeddednzbget.New(embeddednzbget.Config{
+				DownloadDir: cfg.EmbeddedDownloadDir,
+				Provider: embeddednzbget.NewsProvider{
+					Host:        cfg.UsenetHost,
+					Port:        cfg.UsenetPort,
+					SSL:         cfg.UsenetSSL,
+					Username:    cfg.UsenetUsername,
+					Password:    cfg.UsenetPassword,
+					Connections: cfg.UsenetConnections,
+				},
+				Logger: logger.Named("nzbget"),
+			})
+			if sErr != nil {
+				logger.Warn("embedded nzbget init failed; falling back to external nzbget config", "err", sErr)
+			} else {
+				startCtx, startCancel := context.WithTimeout(ctx, 45*time.Second)
+				if sErr := sup.Start(startCtx); sErr != nil {
+					startCancel()
+					logger.Warn("embedded nzbget failed to start; falling back to external nzbget config", "err", sErr)
+				} else {
+					startCancel()
+					nzbgetSupervisor = sup
+					user, pass := sup.Credentials()
+					cfg.NZBGetURL = fmt.Sprintf("http://127.0.0.1:%d", sup.Port())
+					cfg.NZBGetUsername = user
+					cfg.NZBGetPassword = pass
+					if cfg.NZBGetCategory == "" {
+						cfg.NZBGetCategory = "audiobooks"
+					}
+					logger.Info("embedded nzbget online", "port", sup.Port(), "bundle_version", embeddednzbget.Version())
+				}
+			}
+		}
+
 		// Build the abook + nzbking + nzbget trio when the operator has
 		// configured both ends. Either end alone is useless — abook
 		// produces NZB search codes that only nzbking can resolve; nzbking
@@ -216,10 +261,17 @@ func main() {
 		if old := embeddedPtr.Swap(embeddedManager); old != nil {
 			old.Close()
 		}
+		if old := embeddedNZBGetPtr.Swap(nzbgetSupervisor); old != nil {
+			// Stopping the old supervisor after Swap (rather than
+			// before) means the new daemon is already serving when
+			// the old one goes away — no window during which the
+			// consumer would see "nzbget unavailable".
+			_ = old.Stop()
+		}
 		if old := poolPtr.Swap(p); old != nil {
 			old.Close()
 		}
-		logger.Info("configured", "base_url", cfg.BaseURL)
+		logger.Info("configured", "base_url", cfg.BaseURL, "download_mode", cfg.DownloadMode)
 		return nil
 	})
 

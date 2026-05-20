@@ -1,6 +1,9 @@
 // Package consumer implements the event_consumer.v1 handler for
-// request_submitted events. It accepts an optional source_id/detail URL; when
-// absent it searches AudiobookBay from the submitted title and author.
+// request_submitted events. It accepts an optional source_id/detail URL;
+// when absent it searches AudiobookBay from the submitted title and author.
+// When the abook+NZBGet pipeline is also configured, it tries abook first
+// (Usenet is more deterministic than scraping torrent trackers) and falls
+// back to AudiobookBay only when abook produces no usable hit.
 package consumer
 
 import (
@@ -13,19 +16,48 @@ import (
 
 	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
 
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/abook"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/nzbget"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/nzbking"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/store"
 )
+
+// NZBExternalIDPrefix marks a forwarded_request row whose external_id is
+// an NZBGet NZBID rather than an AudiobookBay info hash. The reconciler
+// branches on this prefix to choose the right polling backend.
+const NZBExternalIDPrefix = "nzbget:"
 
 type Publisher interface {
 	Publish(ctx context.Context, name string, payload map[string]any)
 }
 
+// CookieStore lets the abook path persist a freshly minted session
+// cookie back into the plugin's app_config so a restart doesn't force a
+// re-login on every event. The real implementation is wired by main.go
+// against the store.
+type CookieStore interface {
+	SaveAbookCookie(ctx context.Context, cookie string) error
+}
+
 type Deps struct {
-	Store    *store.Store
-	Pub      Publisher
-	ABB      *audiobookbay.Client
-	PluginID string
+	Store          *store.Store
+	Pub            Publisher
+	ABB            *audiobookbay.Client
+	PluginID       string
+	Abook          *abook.Client    // nil when abook isn't configured
+	Nzbking        *nzbking.Client  // nil when abook isn't configured
+	Nzbget         *nzbget.Client   // nil when abook isn't configured
+	NZBGetCategory string           // NZBGet category to drop appends into; "" defers to NZBGet default
+	Cookies        CookieStore      // nil disables cookie persistence (re-login every restart)
+	AbookEmail     string           // captured once at Configure so re-login uses fresh creds
+	AbookPassword  string
+}
+
+// abookEnabled returns true when the consumer has a complete abook+nzbget
+// pipeline and there are credentials to refresh the cookie when it expires.
+func (d *Deps) abookEnabled() bool {
+	return d.Abook != nil && d.Nzbking != nil && d.Nzbget != nil && d.AbookEmail != "" && d.AbookPassword != ""
 }
 
 type Handler struct {
@@ -95,6 +127,20 @@ func (h *Handler) HandleEvent(ctx context.Context, req *pluginv1.HandleEventRequ
 			"provider_plugin_id": d.PluginID, "reason": reason,
 		})
 		return &pluginv1.HandleEventResponse{}, nil
+	}
+
+	// Try the abook+nzbget pipeline first when it's fully configured AND
+	// the caller has given us a title to search by (a direct source_id
+	// always means AudiobookBay — that's an audiobookbay-internal slug).
+	// On any hard failure, fall back to AudiobookBay so the user request
+	// still has a chance — abook is optional, not gating.
+	if d.abookEnabled() && sourceID == "" && query != "" {
+		if handled, err := h.tryAbook(ctx, d, requestID, query); err != nil {
+			h.logger.Warn("abook pipeline failed; falling back to AudiobookBay",
+				"request_id", requestID, "err", err)
+		} else if handled {
+			return &pluginv1.HandleEventResponse{}, nil
+		}
 	}
 
 	resp, err := d.ABB.StartDownload(ctx, sourceID, query)

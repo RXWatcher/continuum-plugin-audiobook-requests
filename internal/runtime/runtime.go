@@ -31,6 +31,30 @@ type Config struct {
 	EmbeddedMaxConcurrent int `json:"embedded_max_concurrent"`
 	Trackers            []string `json:"trackers"`
 	SearchLimit         int      `json:"search_limit"`
+
+	// abook.link parallel source. When AbookEmail+AbookPassword are set,
+	// the consumer also searches abook.link for each incoming request and
+	// hands the best abook hit off to NZBGet. AbookCookie holds the most
+	// recently minted SMF session so re-logins only happen on expiry.
+	AbookBaseURL  string `json:"abook_base_url"`
+	AbookEmail    string `json:"abook_email"`
+	AbookPassword string `json:"abook_password,omitempty"`
+	AbookCookie   string `json:"abook_cookie,omitempty"`
+
+	// NZBGet handoff. Required when abook is configured; the abook source
+	// doesn't produce magnets, so without NZBGet there's nothing to do
+	// with a winning hit.
+	NZBGetURL      string `json:"nzbget_url"`
+	NZBGetUsername string `json:"nzbget_username"`
+	NZBGetPassword string `json:"nzbget_password,omitempty"`
+	NZBGetCategory string `json:"nzbget_category"`
+}
+
+// AbookConfigured reports whether the abook+nzbget pipeline has enough
+// configuration to participate in searches. Both ends need to be set —
+// credentials without NZBGet would produce hits the plugin can't dispatch.
+func (c Config) AbookConfigured() bool {
+	return c.AbookEmail != "" && c.AbookPassword != "" && c.NZBGetURL != ""
 }
 
 func (c Config) Configured() bool {
@@ -89,6 +113,22 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 			cfg.EmbeddedListenPort = intFromValue(m["value"])
 		case "embedded_max_concurrent":
 			cfg.EmbeddedMaxConcurrent = intFromValue(m["value"])
+		case "abook_base_url":
+			cfg.AbookBaseURL = stringFromValue(m["value"])
+		case "abook_email":
+			cfg.AbookEmail = stringFromValue(m["value"])
+		case "abook_password":
+			cfg.AbookPassword = stringFromValue(m["value"])
+		case "abook_cookie":
+			cfg.AbookCookie = stringFromValue(m["value"])
+		case "nzbget_url":
+			cfg.NZBGetURL = stringFromValue(m["value"])
+		case "nzbget_username":
+			cfg.NZBGetUsername = stringFromValue(m["value"])
+		case "nzbget_password":
+			cfg.NZBGetPassword = stringFromValue(m["value"])
+		case "nzbget_category":
+			cfg.NZBGetCategory = stringFromValue(m["value"])
 		case "trackers":
 			cfg.Trackers = stringSliceFromValue(m["value"])
 		case "search_limit":
@@ -139,6 +179,27 @@ func ValidateAppConfig(cfg Config) error {
 	}
 	if cfg.EmbeddedListenPort < 0 || cfg.EmbeddedListenPort > 65535 {
 		return fmt.Errorf("embedded_listen_port must be between 0 and 65535")
+	}
+	if cfg.AbookBaseURL != "" {
+		if err := validateOriginURL(cfg.AbookBaseURL, false); err != nil {
+			return fmt.Errorf("abook_base_url: %w", err)
+		}
+	}
+	abookCredsPartial := (cfg.AbookEmail != "") != (cfg.AbookPassword != "")
+	if abookCredsPartial {
+		return fmt.Errorf("abook_email and abook_password must both be set together")
+	}
+	if cfg.AbookEmail != "" && cfg.NZBGetURL == "" {
+		return fmt.Errorf("nzbget_url is required when abook_email is set (abook hits are dispatched via NZBGet)")
+	}
+	if cfg.NZBGetURL != "" {
+		if err := validateOriginURL(cfg.NZBGetURL, true); err != nil {
+			return fmt.Errorf("nzbget_url: %w", err)
+		}
+	}
+	nzbgetCredsPartial := (cfg.NZBGetUsername != "") != (cfg.NZBGetPassword != "")
+	if nzbgetCredsPartial {
+		return fmt.Errorf("nzbget_username and nzbget_password must both be set together")
 	}
 	if cfg.EmbeddedMaxConcurrent < 0 || cfg.EmbeddedMaxConcurrent > 64 {
 		return fmt.Errorf("embedded_max_concurrent must be between 0 and 64")

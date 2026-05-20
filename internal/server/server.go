@@ -8,13 +8,17 @@ import (
 	"html"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/abook"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/catalog"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/consumer"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/nzbget"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/reconciler"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/runtime"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/store"
@@ -30,6 +34,12 @@ type Deps struct {
 	Store              *store.Store
 	Reconciler         *reconciler.Reconciler // nil before Configure runs
 	Config             runtime.Config
+
+	// Abook / NZBGet are only populated when the operator has configured
+	// the abook+NZBGet pipeline. They power the Test buttons in the admin
+	// UI and are otherwise read-only from this package.
+	Abook  *abook.Client
+	Nzbget *nzbget.Client
 }
 
 type Server struct {
@@ -56,11 +66,91 @@ func (s *Server) Handler() http.Handler {
 		r.Post("/admin/requests/{id}/mark-failed", s.handleMarkFailedRequest)
 		r.Get("/admin/reconciler/status", s.handleReconcilerStatus)
 		r.Post("/admin/reconciler/run", s.handleReconcilerRun)
+		r.Post("/admin/abook/test-login", s.handleAbookTestLogin)
+		r.Post("/admin/nzbget/test", s.handleNZBGetTest)
 		if s.deps.AudiobookBayClient != nil {
 			catalog.NewHandler(s.deps.AudiobookBayClient).Mount(r)
 		}
 	})
 	return r
+}
+
+// handleAbookTestLogin mints a fresh SMF session from the configured
+// abook email/password and persists the resulting cookie. Returns the
+// cookie length (not the value) on success so the admin UI can confirm
+// the round-trip worked without exposing the cookie in browser network
+// logs / screenshots.
+func (s *Server) handleAbookTestLogin(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "store not configured"})
+		return
+	}
+	cfg, err := s.deps.Store.GetAppConfig(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if cfg.AbookEmail == "" || cfg.AbookPassword == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "abook_email and abook_password must be set before testing login"})
+		return
+	}
+	baseURL := cfg.AbookBaseURL
+	if baseURL == "" {
+		baseURL = "https://abook.link/book"
+	}
+	client, err := abook.New(baseURL)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	if err := client.Login(ctx, cfg.AbookEmail, cfg.AbookPassword); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	cfg.AbookCookie = client.CookieHeader()
+	if err := s.deps.Store.UpdateAppConfig(r.Context(), cfg); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "saved cookie failed: " + err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":             true,
+		"cookieLength":   len(cfg.AbookCookie),
+		"loggedInMarker": "session upgraded; cookie persisted",
+	})
+}
+
+// handleNZBGetTest probes the configured NZBGet endpoint and returns its
+// version. Mirrors the AudiobookBay test-search button. Surfaces auth
+// failures distinctly so the operator knows which knob to twist.
+func (s *Server) handleNZBGetTest(w http.ResponseWriter, r *http.Request) {
+	if s.deps.Store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "store not configured"})
+		return
+	}
+	cfg, err := s.deps.Store.GetAppConfig(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	if cfg.NZBGetURL == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "nzbget_url must be set"})
+		return
+	}
+	client, err := nzbget.New(cfg.NZBGetURL, cfg.NZBGetUsername, cfg.NZBGetPassword)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	version, err := client.Version(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": version})
 }
 
 // requestRow is the JSON wire shape for the admin queue table. Includes
@@ -69,6 +159,7 @@ func (s *Server) Handler() http.Handler {
 type requestRow struct {
 	RequestID     string `json:"requestId"`
 	ExternalID    string `json:"externalId,omitempty"`
+	Source        string `json:"source,omitempty"` // "abook" | "audiobookbay"
 	Status        string `json:"status"`
 	SearchQuery   string `json:"searchQuery,omitempty"`
 	SelectedTitle string `json:"selectedTitle,omitempty"`
@@ -81,10 +172,23 @@ type requestRow struct {
 	StuckDuration string `json:"stuckDuration,omitempty"`
 }
 
+// classifySource maps the persisted row to the source pipeline that
+// produced it: abook+NZBGet rows carry the consumer's "nzbget:" prefix
+// on external_id; everything else is AudiobookBay (the historical
+// default, and what the InfoHash field is set for).
+func classifySource(r store.ForwardedRequest) string {
+	if strings.HasPrefix(r.ExternalID, consumer.NZBExternalIDPrefix) ||
+		strings.HasPrefix(r.SourceID, "abook:") {
+		return "abook"
+	}
+	return "audiobookbay"
+}
+
 func toRequestRow(r store.ForwardedRequest) requestRow {
 	out := requestRow{
 		RequestID:     r.RequestID,
 		ExternalID:    r.ExternalID,
+		Source:        classifySource(r),
 		Status:        r.Status,
 		SearchQuery:   r.SearchQuery,
 		SelectedTitle: r.SelectedTitle,
@@ -297,7 +401,7 @@ func (s *Server) handleAdminHome(w http.ResponseWriter, r *http.Request) {
 <div class="panel-head"><div><h2 style="color:var(--bad)">Embedded download mode is selected</h2><p class="muted">The plugin process is running the torrent client itself. It will write to <code id="embedded-warn-dir">—</code>, listen on a peer port, hold socket and connection-tracking state, and use disk and bandwidth in proportion to active downloads. qBittorrent mode is the recommended production handoff. Embedded is best for development or single-user installs.</p></div></div>
 <div id="embedded-warning-status" class="muted" style="font-size:12px">—</div>
 </div>
-<article class="panel"><div class="panel-head"><div><h2>Plugin config</h2><p class="muted">AudiobookBay mirror, download mode, qBittorrent, embedded torrent, tracker, and search settings live in this plugin database.</p></div><span id="config-state" class="badge">Loading</span></div><form id="config-form" class="config-grid"><label>Base URL<input id="cfg-base-url" placeholder="https://audiobookbay.lu"></label><label>Download mode<input id="cfg-download-mode" placeholder="scrape_only"></label><label>qBittorrent URL<input id="cfg-qbit-url" placeholder="http://qbittorrent:8080"></label><label>qBittorrent username<input id="cfg-qbit-user"></label><label>qBittorrent password<input id="cfg-qbit-pass" type="password" placeholder="Leave blank to keep current password"></label><label>qBittorrent category<input id="cfg-qbit-category"></label><label>qBittorrent save path<input id="cfg-qbit-save-path"></label><label>Embedded download dir<input id="cfg-embedded-dir"></label><label>Embedded listen port<input id="cfg-embedded-port" type="number" min="0" max="65535"></label><label>Embedded max concurrent torrents<input id="cfg-embedded-max" type="number" min="0" max="64" placeholder="0 = default (8)"></label><label>Search limit<input id="cfg-search-limit" type="number" min="1" max="100"></label><label class="span-all">Fallback trackers JSON<textarea id="cfg-trackers" rows="5" placeholder='["udp://tracker.opentrackr.org:1337/announce"]'></textarea></label><button type="submit">Save config</button></form><pre id="config-output" class="output">Loading config...</pre></article>
+<article class="panel"><div class="panel-head"><div><h2>Plugin config</h2><p class="muted">AudiobookBay mirror, download mode, qBittorrent, embedded torrent, tracker, and search settings live in this plugin database.</p></div><span id="config-state" class="badge">Loading</span></div><form id="config-form" class="config-grid"><label>Base URL<input id="cfg-base-url" placeholder="https://audiobookbay.lu"></label><label>Download mode<input id="cfg-download-mode" placeholder="scrape_only"></label><label>qBittorrent URL<input id="cfg-qbit-url" placeholder="http://qbittorrent:8080"></label><label>qBittorrent username<input id="cfg-qbit-user"></label><label>qBittorrent password<input id="cfg-qbit-pass" type="password" placeholder="Leave blank to keep current password"></label><label>qBittorrent category<input id="cfg-qbit-category"></label><label>qBittorrent save path<input id="cfg-qbit-save-path"></label><label>Embedded download dir<input id="cfg-embedded-dir"></label><label>Embedded listen port<input id="cfg-embedded-port" type="number" min="0" max="65535"></label><label>Embedded max concurrent torrents<input id="cfg-embedded-max" type="number" min="0" max="64" placeholder="0 = default (8)"></label><label>abook base URL<input id="cfg-abook-base" placeholder="https://abook.link/book"></label><label>abook email<input id="cfg-abook-email" type="email" autocomplete="off"></label><label>abook password<input id="cfg-abook-pass" type="password" autocomplete="off" placeholder="Leave blank to keep current"></label><label>NZBGet URL<input id="cfg-nzbget-url" placeholder="http://nzbget.lan:6789"></label><label>NZBGet username<input id="cfg-nzbget-user" autocomplete="off"></label><label>NZBGet password<input id="cfg-nzbget-pass" type="password" autocomplete="off" placeholder="Leave blank to keep current"></label><label>NZBGet category<input id="cfg-nzbget-cat" placeholder="audiobooks"></label><label>Search limit<input id="cfg-search-limit" type="number" min="1" max="100"></label><label class="span-all">Fallback trackers JSON<textarea id="cfg-trackers" rows="5" placeholder='["udp://tracker.opentrackr.org:1337/announce"]'></textarea></label><button type="submit">Save config</button></form><div class="row" style="grid-template-columns:auto auto minmax(0,1fr);gap:8px;margin-top:10px"><button id="abook-test" type="button">Test abook login</button><button id="nzbget-test" type="button">Test NZBGet</button><span id="abook-nzbget-status" class="muted" style="font-size:12px;align-self:center">—</span></div><pre id="config-output" class="output">Loading config...</pre></article>
 </section>
 <section class="tab-panel" id="search-lab">
 <article class="panel"><div class="panel-head"><div><h2>Provider test</h2><p class="muted">Run a query, inspect candidates, and verify magnet or info-hash readiness before switching user traffic.</p></div></div><form id="search-form" class="row"><input id="q" value="foundation" placeholder="Search title or author" aria-label="Search query"><button type="submit">Test search</button></form><pre id="search-output" class="output">No test run yet.</pre><div class="triage-grid"><div><h3>Score explanation</h3><p>Search results are ranked by AudiobookBay parser quality, info-hash availability, and title relevance.</p></div><div><h3>Magnet readiness</h3><p>Entries with a magnet or info hash can skip a second resolution hop and hand off faster to the downloader.</p></div><div><h3>Mirror health</h3><p>A single failed search often means the mirror changed shape, blocked traffic, or served a captcha.</p></div></div></article>
@@ -342,21 +446,25 @@ function relAge(iso){if(!iso)return "—";const ms=Date.now()-new Date(iso).getT
 function statusTone(s){if(s==="imported")return "ok";if(s==="failed")return "bad";return "";}
 function activateTab(id){document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tabTarget===id));document.querySelectorAll(".tab-panel").forEach(p=>p.classList.toggle("active",p.id===id));if(id==="download-queue"){loadQueue();}}
 document.querySelectorAll(".tab").forEach(b=>b.addEventListener("click",()=>activateTab(b.dataset.tabTarget)))
-async function loadConfig(){try{const r=await fetch("./api/v1/admin/config",{headers:headers()});const d=await r.json();if(!r.ok)throw new Error(d.error||r.statusText);document.getElementById("cfg-base-url").value=d.base_url||"";document.getElementById("cfg-download-mode").value=d.download_mode||"scrape_only";document.getElementById("cfg-qbit-url").value=d.qbittorrent_url||"";document.getElementById("cfg-qbit-user").value=d.qbittorrent_username||"";document.getElementById("cfg-qbit-category").value=d.qbittorrent_category||"";document.getElementById("cfg-qbit-save-path").value=d.qbittorrent_save_path||"";document.getElementById("cfg-embedded-dir").value=d.embedded_download_dir||"";document.getElementById("cfg-embedded-port").value=d.embedded_listen_port||0;document.getElementById("cfg-embedded-max").value=d.embedded_max_concurrent||0;document.getElementById("cfg-search-limit").value=d.search_limit||10;document.getElementById("cfg-trackers").value=JSON.stringify(d.trackers||[],null,2);configState.textContent="Loaded";configOutput.textContent=JSON.stringify(d,null,2);renderEmbeddedWarning(d);}catch(e){configState.textContent="Unavailable";configOutput.textContent=String(e)}}
+async function loadConfig(){try{const r=await fetch("./api/v1/admin/config",{headers:headers()});const d=await r.json();if(!r.ok)throw new Error(d.error||r.statusText);document.getElementById("cfg-base-url").value=d.base_url||"";document.getElementById("cfg-download-mode").value=d.download_mode||"scrape_only";document.getElementById("cfg-qbit-url").value=d.qbittorrent_url||"";document.getElementById("cfg-qbit-user").value=d.qbittorrent_username||"";document.getElementById("cfg-qbit-category").value=d.qbittorrent_category||"";document.getElementById("cfg-qbit-save-path").value=d.qbittorrent_save_path||"";document.getElementById("cfg-embedded-dir").value=d.embedded_download_dir||"";document.getElementById("cfg-embedded-port").value=d.embedded_listen_port||0;document.getElementById("cfg-embedded-max").value=d.embedded_max_concurrent||0;document.getElementById("cfg-abook-base").value=d.abook_base_url||"";document.getElementById("cfg-abook-email").value=d.abook_email||"";document.getElementById("cfg-nzbget-url").value=d.nzbget_url||"";document.getElementById("cfg-nzbget-user").value=d.nzbget_username||"";document.getElementById("cfg-nzbget-cat").value=d.nzbget_category||"";document.getElementById("cfg-search-limit").value=d.search_limit||10;document.getElementById("cfg-trackers").value=JSON.stringify(d.trackers||[],null,2);configState.textContent="Loaded";configOutput.textContent=JSON.stringify(d,null,2);renderEmbeddedWarning(d);}catch(e){configState.textContent="Unavailable";configOutput.textContent=String(e)}}
 function renderEmbeddedWarning(cfg){const warn=document.getElementById("embedded-warning");if((cfg.download_mode||"")!=="embedded"){warn.style.display="none";return;}warn.style.display="";document.getElementById("embedded-warn-dir").textContent=cfg.embedded_download_dir||"(not set)";document.getElementById("embedded-warning-status").textContent="Concurrent cap: "+(cfg.embedded_max_concurrent>0?cfg.embedded_max_concurrent:"8 (default)");}
 async function loadDiagnostics(){try{const r=await fetch("./api/v1/admin/diagnostics",{headers:headers()});const d=await r.json();const ready=d.configured&&d.database?.ok&&d.upstream?.ok;document.getElementById("ready-badge").textContent=ready?"Ready":"Needs attention";const rs=d.requests||{};clear(statusEl);statusEl.appendChild(diagBadge(d.configured,"Configured","base_url, db, and download mode applied"));statusEl.appendChild(diagBadge(d.database?.ok,"Database",d.database?.message));statusEl.appendChild(diagBadge(d.upstream?.ok,"AudiobookBay",d.upstream?.message));statusEl.appendChild(diagBadge(!d.qbittorrent?.configured||d.qbittorrent?.ok,"qBittorrent",d.qbittorrent?.message));statusEl.appendChild(diag("Mode",d.download_mode||"not set"));statusEl.appendChild(diag("Requests",(rs.total||0)+" total · "+(rs.active||0)+" active · "+(rs.failed||0)+" failed · "+(rs.imported||0)+" imported"));}catch(e){clear(statusEl);statusEl.appendChild(el("span",{class:"bad"},String(e)));}}
 async function loadReconciler(){try{const r=await fetch("./api/v1/admin/reconciler/status",{headers:headers()});const d=await r.json();clear(reconcilerStatusEl);if(!d.available){reconcilerStatusEl.appendChild(diag("Reconciler",d.reason||"not available"));return;}reconcilerStatusEl.appendChild(diag("Last run",d.lastRunAt?(relAge(d.lastRunAt)+" ago"+(d.lastDurationMs?(" · "+d.lastDurationMs+"ms"):"")):"never"));reconcilerStatusEl.appendChild(diag("Rows processed",d.rowsProcessed||0));reconcilerStatusEl.appendChild(diag("Stuck (>24h)",d.stuckCount||0,(d.stuckCount||0)>0?"bad":""));if(d.lastError){reconcilerStatusEl.appendChild(diag("Last error",d.lastError,"bad"));}if((d.stuckCount||0)>0){loadStuck();}else{stuckPanelEl.style.display="none";}}catch(e){clear(reconcilerStatusEl);reconcilerStatusEl.appendChild(el("span",{class:"bad"},String(e)));}}
 async function loadStuck(){try{const r=await fetch("./api/v1/admin/requests/stuck",{headers:headers()});const d=await r.json();if(!d.rows||d.rows.length===0){stuckPanelEl.style.display="none";return;}stuckPanelEl.style.display="";renderRequestTable(stuckTableEl,d.rows,{stuckMode:true});}catch(e){clear(stuckTableEl);stuckTableEl.appendChild(el("span",{class:"bad"},String(e)));}}
 document.getElementById("reconcile-now").addEventListener("click",async()=>{const btn=document.getElementById("reconcile-now");btn.disabled=true;btn.textContent="Running…";try{const r=await fetch("./api/v1/admin/reconciler/run",{method:"POST",headers:headers()});const d=await r.json();btn.textContent=d.ok?"Done":(d.error?"Error":"Done");setTimeout(()=>{btn.textContent="Run now";btn.disabled=false;loadReconciler();loadQueue();},800);}catch(e){btn.textContent="Error";setTimeout(()=>{btn.textContent="Run now";btn.disabled=false;},1500);}});
-function renderRequestTable(host,rows,opts){opts=opts||{};clear(host);if(!rows.length){host.appendChild(el("div",{class:"muted",style:"padding:14px"},"No matching requests."));return;}const tbl=el("table",{class:"qtable"});const thead=el("thead");const trh=el("tr");["Request","Status","Title","Last polled","Age"].forEach(h=>trh.appendChild(el("th",null,h)));if(opts.stuckMode)trh.appendChild(el("th",null,"Stuck for"));trh.appendChild(el("th",null,"Error"));trh.appendChild(el("th",{style:"width:140px"},""));thead.appendChild(trh);tbl.appendChild(thead);const tbody=el("tbody");rows.forEach(r=>{const tr=el("tr");const tdId=el("td");tdId.appendChild(el("code",null,r.requestId));if(r.externalId)tdId.appendChild(el("div",{class:"muted",style:"font-size:11px"},"ext: "+r.externalId));if(r.infoHash)tdId.appendChild(el("div",{class:"muted",style:"font-size:11px"},"hash: "+r.infoHash.slice(0,12)+"…"));tr.appendChild(tdId);tr.appendChild(el("td",null)).appendChild(el("span",{class:"badge "+statusTone(r.status)},r.status));const tdTitle=el("td",{style:"max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"},r.selectedTitle||r.searchQuery||"—");if(r.selectedTitle||r.searchQuery)tdTitle.title=(r.selectedTitle||"")+(r.searchQuery?(" — query: "+r.searchQuery):"");tr.appendChild(tdTitle);tr.appendChild(el("td",{class:"muted",style:"font-size:12px"},r.lastPolledAt?(relAge(r.lastPolledAt)+" ago"):"never"));tr.appendChild(el("td",{class:"muted",style:"font-size:12px"},relAge(r.createdAt)));if(opts.stuckMode)tr.appendChild(el("td",{class:"bad",style:"font-size:12px"},r.stuckDuration||"—"));const tdErr=el("td",{class:"muted",style:"font-size:12px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"},r.errorText||"—");if(r.errorText)tdErr.title=r.errorText;tr.appendChild(tdErr);const tdAct=el("td",{style:"text-align:right;white-space:nowrap"});const terminal=(r.status==="imported"||r.status==="failed");if(r.externalId&&r.status!=="imported"){tdAct.appendChild(el("button",{dataset:{act:"retry",id:r.requestId},type:"button"},"Retry"));tdAct.appendChild(document.createTextNode(" "));}if(!terminal){tdAct.appendChild(el("button",{class:"danger",dataset:{act:"fail",id:r.requestId},type:"button"},"Fail"));}tr.appendChild(tdAct);tbody.appendChild(tr);});tbl.appendChild(tbody);host.appendChild(tbl);}
+function renderRequestTable(host,rows,opts){opts=opts||{};clear(host);if(!rows.length){host.appendChild(el("div",{class:"muted",style:"padding:14px"},"No matching requests."));return;}const tbl=el("table",{class:"qtable"});const thead=el("thead");const trh=el("tr");["Request","Source","Status","Title","Last polled","Age"].forEach(h=>trh.appendChild(el("th",null,h)));if(opts.stuckMode)trh.appendChild(el("th",null,"Stuck for"));trh.appendChild(el("th",null,"Error"));trh.appendChild(el("th",{style:"width:140px"},""));thead.appendChild(trh);tbl.appendChild(thead);const tbody=el("tbody");rows.forEach(r=>{const tr=el("tr");const tdId=el("td");tdId.appendChild(el("code",null,r.requestId));if(r.externalId)tdId.appendChild(el("div",{class:"muted",style:"font-size:11px"},"ext: "+r.externalId));if(r.infoHash)tdId.appendChild(el("div",{class:"muted",style:"font-size:11px"},"hash: "+r.infoHash.slice(0,12)+"…"));tr.appendChild(tdId);tr.appendChild(el("td",{class:"muted",style:"font-size:11px;text-transform:uppercase;letter-spacing:.04em"},r.source||"audiobookbay"));tr.appendChild(el("td",null)).appendChild(el("span",{class:"badge "+statusTone(r.status)},r.status));const tdTitle=el("td",{style:"max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"},r.selectedTitle||r.searchQuery||"—");if(r.selectedTitle||r.searchQuery)tdTitle.title=(r.selectedTitle||"")+(r.searchQuery?(" — query: "+r.searchQuery):"");tr.appendChild(tdTitle);tr.appendChild(el("td",{class:"muted",style:"font-size:12px"},r.lastPolledAt?(relAge(r.lastPolledAt)+" ago"):"never"));tr.appendChild(el("td",{class:"muted",style:"font-size:12px"},relAge(r.createdAt)));if(opts.stuckMode)tr.appendChild(el("td",{class:"bad",style:"font-size:12px"},r.stuckDuration||"—"));const tdErr=el("td",{class:"muted",style:"font-size:12px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"},r.errorText||"—");if(r.errorText)tdErr.title=r.errorText;tr.appendChild(tdErr);const tdAct=el("td",{style:"text-align:right;white-space:nowrap"});const terminal=(r.status==="imported"||r.status==="failed");if(r.externalId&&r.status!=="imported"){tdAct.appendChild(el("button",{dataset:{act:"retry",id:r.requestId},type:"button"},"Retry"));tdAct.appendChild(document.createTextNode(" "));}if(!terminal){tdAct.appendChild(el("button",{class:"danger",dataset:{act:"fail",id:r.requestId},type:"button"},"Fail"));}tr.appendChild(tdAct);tbody.appendChild(tr);});tbl.appendChild(tbody);host.appendChild(tbl);}
 async function loadQueue(){clear(queueTableEl);queueTableEl.appendChild(el("div",{class:"muted",style:"padding:14px"},"Loading…"));try{const params=new URLSearchParams({status:queueState.status,q:queueState.q,limit:String(queueState.limit),page:String(queueState.page)});const r=await fetch("./api/v1/admin/requests?"+params.toString(),{headers:headers()});const d=await r.json();if(!r.ok)throw new Error(d.error||r.statusText);renderRequestTable(queueTableEl,d.rows||[],{});const total=d.total||0,page=d.page||1,limit=d.limit||queueState.limit,pages=Math.max(1,Math.ceil(total/limit));clear(queuePageEl);queuePageEl.appendChild(document.createTextNode(total+" total"));if(pages>1){queuePageEl.appendChild(document.createTextNode(" · page "+page+"/"+pages+" "));const prev=el("button",{type:"button",disabled:page<=1},"Prev");prev.addEventListener("click",()=>{queueState.page=Math.max(1,queueState.page-1);loadQueue();});const next=el("button",{type:"button",disabled:page>=pages},"Next");next.addEventListener("click",()=>{queueState.page=queueState.page+1;loadQueue();});queuePageEl.appendChild(prev);queuePageEl.appendChild(document.createTextNode(" "));queuePageEl.appendChild(next);}}catch(e){clear(queueTableEl);queueTableEl.appendChild(el("div",{class:"bad",style:"padding:14px"},String(e.message||e)));queuePageEl.textContent="—";}}
 queueTableEl.addEventListener("click",async e=>{const t=e.target;if(!(t instanceof HTMLButtonElement))return;const id=t.dataset.id;const act=t.dataset.act;if(!id||!act)return;t.disabled=true;const orig=t.textContent;t.textContent="…";try{if(act==="retry"){const r=await fetch("./api/v1/admin/requests/"+encodeURIComponent(id)+"/retry",{method:"POST",headers:headers()});if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.error||r.statusText);}}else if(act==="fail"){if(!confirm("Mark this request failed? This is terminal; users see it as failed in the portal."))return;const reason=prompt("Reason (optional):","manual force-fail")||"";const r=await fetch("./api/v1/admin/requests/"+encodeURIComponent(id)+"/mark-failed",{method:"POST",headers:{...headers(),"Content-Type":"application/json"},body:JSON.stringify({reason})});if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.error||r.statusText);}}await loadQueue();}catch(err){alert(String(err.message||err));}finally{t.disabled=false;t.textContent=orig;}});
 document.getElementById("queue-status").addEventListener("change",e=>{queueState.status=e.target.value;queueState.page=1;loadQueue();});
 let searchTimer;
 document.getElementById("queue-search").addEventListener("input",e=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{queueState.q=e.target.value.trim();queueState.page=1;loadQueue();},300);});
 document.getElementById("queue-refresh").addEventListener("click",loadQueue);
-document.getElementById("config-form").addEventListener("submit",async e=>{e.preventDefault();configState.textContent="Saving";try{const body={base_url:document.getElementById("cfg-base-url").value.trim(),download_mode:document.getElementById("cfg-download-mode").value.trim()||"scrape_only",qbittorrent_url:document.getElementById("cfg-qbit-url").value.trim(),qbittorrent_username:document.getElementById("cfg-qbit-user").value,qbittorrent_password:document.getElementById("cfg-qbit-pass").value,qbittorrent_category:document.getElementById("cfg-qbit-category").value,qbittorrent_save_path:document.getElementById("cfg-qbit-save-path").value,embedded_download_dir:document.getElementById("cfg-embedded-dir").value,embedded_listen_port:Number(document.getElementById("cfg-embedded-port").value||0),embedded_max_concurrent:Number(document.getElementById("cfg-embedded-max").value||0),search_limit:Number(document.getElementById("cfg-search-limit").value||10),trackers:JSON.parse(document.getElementById("cfg-trackers").value||"[]")};const r=await fetch("./api/v1/admin/config",{method:"PATCH",headers:{...headers(),"Content-Type":"application/json"},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw new Error(d.error||r.statusText);document.getElementById("cfg-qbit-pass").value="";configState.textContent="Saved";configOutput.textContent=JSON.stringify(d,null,2);await loadConfig()}catch(err){configState.textContent="Error";configOutput.textContent=String(err)}})
+document.getElementById("config-form").addEventListener("submit",async e=>{e.preventDefault();configState.textContent="Saving";try{const body={base_url:document.getElementById("cfg-base-url").value.trim(),download_mode:document.getElementById("cfg-download-mode").value.trim()||"scrape_only",qbittorrent_url:document.getElementById("cfg-qbit-url").value.trim(),qbittorrent_username:document.getElementById("cfg-qbit-user").value,qbittorrent_password:document.getElementById("cfg-qbit-pass").value,qbittorrent_category:document.getElementById("cfg-qbit-category").value,qbittorrent_save_path:document.getElementById("cfg-qbit-save-path").value,embedded_download_dir:document.getElementById("cfg-embedded-dir").value,embedded_listen_port:Number(document.getElementById("cfg-embedded-port").value||0),embedded_max_concurrent:Number(document.getElementById("cfg-embedded-max").value||0),abook_base_url:document.getElementById("cfg-abook-base").value.trim(),abook_email:document.getElementById("cfg-abook-email").value.trim(),abook_password:document.getElementById("cfg-abook-pass").value,nzbget_url:document.getElementById("cfg-nzbget-url").value.trim(),nzbget_username:document.getElementById("cfg-nzbget-user").value,nzbget_password:document.getElementById("cfg-nzbget-pass").value,nzbget_category:document.getElementById("cfg-nzbget-cat").value.trim(),search_limit:Number(document.getElementById("cfg-search-limit").value||10),trackers:JSON.parse(document.getElementById("cfg-trackers").value||"[]")};const r=await fetch("./api/v1/admin/config",{method:"PATCH",headers:{...headers(),"Content-Type":"application/json"},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw new Error(d.error||r.statusText);document.getElementById("cfg-qbit-pass").value="";document.getElementById("cfg-abook-pass").value="";document.getElementById("cfg-nzbget-pass").value="";configState.textContent="Saved";configOutput.textContent=JSON.stringify(d,null,2);await loadConfig()}catch(err){configState.textContent="Error";configOutput.textContent=String(err)}})
 document.getElementById("search-form").addEventListener("submit",async e=>{e.preventDefault();output.textContent="Searching...";try{const q=encodeURIComponent(document.getElementById("q").value||"foundation");const r=await fetch("./api/v1/admin/test-search?q="+q,{headers:headers()});output.textContent=JSON.stringify(await r.json(),null,2)}catch(err){output.textContent=String(err)}})
+async function runAbookTest(){const status=document.getElementById("abook-nzbget-status");const btn=document.getElementById("abook-test");btn.disabled=true;status.textContent="Testing abook login…";status.className="muted";try{const r=await fetch("./api/v1/admin/abook/test-login",{method:"POST",headers:headers()});const d=await r.json();if(!r.ok||d.ok===false)throw new Error(d.error||r.statusText);status.textContent="abook login OK · cookie persisted ("+(d.cookieLength||0)+" bytes)";status.className="ok";}catch(e){status.textContent="abook login failed: "+(e.message||e);status.className="bad";}finally{btn.disabled=false;}}
+async function runNZBGetTest(){const status=document.getElementById("abook-nzbget-status");const btn=document.getElementById("nzbget-test");btn.disabled=true;status.textContent="Testing NZBGet…";status.className="muted";try{const r=await fetch("./api/v1/admin/nzbget/test",{method:"POST",headers:headers()});const d=await r.json();if(!r.ok||d.ok===false)throw new Error(d.error||r.statusText);status.textContent="NZBGet OK · v"+(d.version||"?");status.className="ok";}catch(e){status.textContent="NZBGet failed: "+(e.message||e);status.className="bad";}finally{btn.disabled=false;}}
+document.getElementById("abook-test").addEventListener("click",runAbookTest);
+document.getElementById("nzbget-test").addEventListener("click",runNZBGetTest);
 loadDiagnostics();loadConfig();loadReconciler();
 setInterval(loadReconciler,30000);
 </script>

@@ -5,10 +5,13 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/consumer"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/nzbget"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/store"
 )
 
@@ -30,6 +33,7 @@ type Deps struct {
 	Store    *store.Store
 	Pub      Publisher
 	ABB      *audiobookbay.Client
+	Nzbget   *nzbget.Client // nil disables the NZBGet poll branch
 	PluginID string
 }
 
@@ -170,6 +174,30 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 			break
 		}
 		if row.ExternalID == "" {
+			continue
+		}
+		// Rows handed to the abook+NZBGet pipeline carry a typed prefix
+		// on external_id; route them through the NZBGet poll branch
+		// instead of asking AudiobookBay (which has no concept of that
+		// id). NZBGet rows reuse the same error-dedup + status-publish
+		// machinery below — see pollNZBGet.
+		if strings.HasPrefix(row.ExternalID, consumer.NZBExternalIDPrefix) {
+			if r.deps.Nzbget == nil {
+				// Plugin lost its NZBGet config since the row was
+				// queued; record a clear error and skip rather than
+				// flooding logs with "nil client" panics.
+				if r.recordErrorChanged(row.RequestID, "nzbget not configured") {
+					_ = r.deps.Store.UpsertForwardedRequest(ctx, store.ForwardedRequest{
+						RequestID: row.RequestID, ExternalID: row.ExternalID,
+						Status: row.Status, LastPolled: time.Now(),
+						ErrorText: "nzbget not configured", UpdatedAt: time.Now(),
+					})
+				}
+				continue
+			}
+			if perr := r.pollNZBGet(ctx, row); perr != nil && firstErr == nil {
+				firstErr = perr
+			}
 			continue
 		}
 		rowCtx, rowCancel := context.WithTimeout(ctx, perRowTimeout)

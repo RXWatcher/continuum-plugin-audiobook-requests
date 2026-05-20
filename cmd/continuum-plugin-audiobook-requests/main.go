@@ -17,18 +17,36 @@ import (
 	publicmanifest "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginsdk/manifest"
 	sdkruntime "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginsdk/runtime"
 
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/abook"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/consumer"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/embedded"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/event"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/httproutes"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/migrate"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/nzbget"
+	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/nzbking"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/reconciler"
 	pluginrt "github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/runtime"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/scheduler"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/server"
 	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/store"
 )
+
+// cookieStore bridges consumer.CookieStore to the plugin's app_config so
+// a freshly minted abook session cookie survives restarts. The whole
+// config blob is rewritten on every save; this helper does
+// read-modify-write so it doesn't clobber unrelated fields.
+type cookieStore struct{ st *store.Store }
+
+func (c cookieStore) SaveAbookCookie(ctx context.Context, cookie string) error {
+	cfg, err := c.st.GetAppConfig(ctx)
+	if err != nil {
+		return err
+	}
+	cfg.AbookCookie = cookie
+	return c.st.UpdateAppConfig(ctx, cfg)
+}
 
 //go:embed manifest.json
 var manifestRaw []byte
@@ -126,14 +144,57 @@ func main() {
 		}
 
 		ev := event.New(sdkruntime.Host(), logger.Named("event"))
+
+		// Build the abook + nzbking + nzbget trio when the operator has
+		// configured both ends. Either end alone is useless — abook
+		// produces NZB search codes that only nzbking can resolve; nzbking
+		// gives us NZB URLs that only NZBGet can fetch.
+		var (
+			abookClient *abook.Client
+			nzbkingCli  *nzbking.Client
+			nzbgetCli   *nzbget.Client
+		)
+		if cfg.AbookConfigured() {
+			abookBase := cfg.AbookBaseURL
+			if abookBase == "" {
+				abookBase = "https://abook.link/book"
+			}
+			abookClient, err = abook.New(abookBase)
+			if err != nil {
+				logger.Warn("abook client init", "err", err)
+			} else if cfg.AbookCookie != "" {
+				// Rehydrate from a previously saved session cookie so we
+				// don't burn a fresh login on every restart.
+				if err := abookClient.SetCookieHeader(cfg.AbookCookie); err != nil {
+					logger.Warn("abook restore cookie", "err", err)
+				}
+			}
+			nzbkingCli = nzbking.New()
+			nzbgetCli, err = nzbget.New(cfg.NZBGetURL, cfg.NZBGetUsername, cfg.NZBGetPassword)
+			if err != nil {
+				logger.Warn("nzbget client init", "err", err)
+				nzbgetCli = nil
+				abookClient = nil
+				nzbkingCli = nil
+			}
+		}
+
 		var rc *reconciler.Reconciler
 		if abbClient != nil {
 			consumerDepsP.Store(&consumer.Deps{
 				Store: st, Pub: ev, ABB: abbClient,
-				PluginID: "continuum.audiobook-requests",
+				PluginID:       "continuum.audiobook-requests",
+				Abook:          abookClient,
+				Nzbking:        nzbkingCli,
+				Nzbget:         nzbgetCli,
+				NZBGetCategory: cfg.NZBGetCategory,
+				Cookies:        cookieStore{st: st},
+				AbookEmail:     cfg.AbookEmail,
+				AbookPassword:  cfg.AbookPassword,
 			})
 			rc = reconciler.New(reconciler.Deps{
 				Store: st, Pub: ev, ABB: abbClient,
+				Nzbget:   nzbgetCli,
 				PluginID: "continuum.audiobook-requests",
 			})
 			reconcilerPtr.Store(rc)
@@ -147,6 +208,8 @@ func main() {
 			Store:              st,
 			Reconciler:         rc,
 			Config:             cfg,
+			Abook:              abookClient,
+			Nzbget:             nzbgetCli,
 		})
 		httpSrv.SetHandler(srv.Handler())
 

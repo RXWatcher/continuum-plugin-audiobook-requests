@@ -184,6 +184,7 @@ func (c *Client) Ping(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	req.Header.Set("User-Agent", "Mozilla/5.0")
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return err

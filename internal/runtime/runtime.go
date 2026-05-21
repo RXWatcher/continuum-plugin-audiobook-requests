@@ -14,11 +14,18 @@ import (
 )
 
 // Config is the parsed plugin global config (per spec Layer 9.3).
+//
+// DownloadMode is the legacy single global mode. It is preserved only so
+// existing rows continue to work; new code reads AudiobookBayDownloadMode and
+// AbookDownloadMode through the EffectiveAudiobookBayMode / EffectiveAbookMode
+// helpers, which fall back to DownloadMode when the per-source field is empty.
 type Config struct {
-	DatabaseURL         string   `json:"database_url,omitempty"`
-	BaseURL             string   `json:"base_url"`
-	DownloadMode        string   `json:"download_mode"`
-	QBitURL             string   `json:"qbittorrent_url"`
+	DatabaseURL              string `json:"database_url,omitempty"`
+	BaseURL                  string `json:"base_url"`
+	DownloadMode             string `json:"download_mode,omitempty"`
+	AudiobookBayDownloadMode string `json:"audiobookbay_download_mode"`
+	AbookDownloadMode        string `json:"abook_download_mode"`
+	QBitURL                  string `json:"qbittorrent_url"`
 	QBitUsername        string   `json:"qbittorrent_username"`
 	QBitPassword        string   `json:"qbittorrent_password,omitempty"`
 	QBitCategory        string   `json:"qbittorrent_category"`
@@ -63,18 +70,56 @@ type Config struct {
 	UsenetConnections int    `json:"usenet_connections"`
 }
 
-// AbookConfigured reports whether the abook+nzbget pipeline has enough
-// configuration to participate in searches. With download_mode=embedded
-// _nzbget the NZBGet leg is provided by the supervised daemon, so the
-// operator-supplied NZBGetURL isn't required in that mode.
+// EffectiveAudiobookBayMode returns the AudiobookBay-side download mode
+// the runtime should act on. Falls back to the legacy DownloadMode field
+// only when it represents a torrent path (scrape_only/qbittorrent/embedded);
+// "embedded_nzbget" is an abook-side mode and would otherwise leak.
+func (c Config) EffectiveAudiobookBayMode() string {
+	if c.AudiobookBayDownloadMode != "" {
+		return c.AudiobookBayDownloadMode
+	}
+	switch c.DownloadMode {
+	case "scrape_only", "qbittorrent", "embedded":
+		return c.DownloadMode
+	}
+	return "scrape_only"
+}
+
+// EffectiveAbookMode returns the abook-side download mode the runtime should
+// act on. Falls back to legacy DownloadMode only when it represents an NZB
+// path (scrape_only/embedded_nzbget) or "external_nzbget"; torrent modes
+// imply abook is opt-out (external_nzbget when nzbget_url is set, else scrape_only).
+func (c Config) EffectiveAbookMode() string {
+	if c.AbookDownloadMode != "" {
+		return c.AbookDownloadMode
+	}
+	switch c.DownloadMode {
+	case "scrape_only", "external_nzbget", "embedded_nzbget":
+		return c.DownloadMode
+	case "qbittorrent", "embedded":
+		if c.NZBGetURL != "" {
+			return "external_nzbget"
+		}
+		return "scrape_only"
+	}
+	return "scrape_only"
+}
+
+// AbookConfigured reports whether the abook pipeline has enough configuration
+// to participate in searches. Returns false in scrape_only — abook is a
+// closed account so we don't want to hit it without a downloader to consume
+// the NZB hit.
 func (c Config) AbookConfigured() bool {
 	if c.AbookEmail == "" || c.AbookPassword == "" {
 		return false
 	}
-	if c.DownloadMode == "embedded_nzbget" {
+	switch c.EffectiveAbookMode() {
+	case "embedded_nzbget":
 		return c.EmbeddedNZBGetConfigured()
+	case "external_nzbget":
+		return c.NZBGetURL != ""
 	}
-	return c.NZBGetURL != ""
+	return false
 }
 
 // EmbeddedNZBGetConfigured reports whether the operator has provided
@@ -126,6 +171,10 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 			cfg.BaseURL = stringFromValue(m["value"])
 		case "download_mode":
 			cfg.DownloadMode = stringFromValue(m["value"])
+		case "audiobookbay_download_mode":
+			cfg.AudiobookBayDownloadMode = stringFromValue(m["value"])
+		case "abook_download_mode":
+			cfg.AbookDownloadMode = stringFromValue(m["value"])
 		case "qbittorrent_url":
 			cfg.QBitURL = stringFromValue(m["value"])
 		case "qbittorrent_username":
@@ -176,6 +225,12 @@ func (s *Server) Configure(_ context.Context, req *pluginv1.ConfigureRequest) (*
 			cfg.SearchLimit = intFromValue(m["value"])
 		}
 	}
+	if cfg.BaseURL == "" {
+		cfg.BaseURL = "https://audiobookbay.lu"
+	}
+	if cfg.AbookBaseURL == "" {
+		cfg.AbookBaseURL = "https://abook.link/book"
+	}
 	if cfg.DatabaseURL == "" {
 		s.mu.Lock()
 		s.cfg = cfg
@@ -203,21 +258,33 @@ func ValidateAppConfig(cfg Config) error {
 		}
 	}
 	switch cfg.DownloadMode {
-	case "", "scrape_only", "qbittorrent", "embedded", "embedded_nzbget":
+	case "", "scrape_only", "qbittorrent", "embedded", "embedded_nzbget", "external_nzbget":
 	default:
-		return fmt.Errorf("download_mode must be scrape_only, qbittorrent, embedded, or embedded_nzbget")
+		return fmt.Errorf("download_mode must be scrape_only, qbittorrent, embedded, embedded_nzbget, or external_nzbget")
 	}
-	if cfg.DownloadMode == "embedded_nzbget" {
+	abMode := cfg.EffectiveAudiobookBayMode()
+	switch abMode {
+	case "scrape_only", "qbittorrent", "embedded":
+	default:
+		return fmt.Errorf("audiobookbay_download_mode must be scrape_only, qbittorrent, or embedded")
+	}
+	abookMode := cfg.EffectiveAbookMode()
+	switch abookMode {
+	case "scrape_only", "external_nzbget", "embedded_nzbget":
+	default:
+		return fmt.Errorf("abook_download_mode must be scrape_only, external_nzbget, or embedded_nzbget")
+	}
+	if abookMode == "embedded_nzbget" {
 		// All four parts of the usenet provider config are load-bearing —
 		// the supervised daemon refuses to start without a working
 		// Server1.* block. Validate up-front so the operator sees the
 		// problem on Save, not after the daemon refuses to come up.
 		if cfg.UsenetHost == "" || cfg.UsenetPort == 0 ||
 			cfg.UsenetUsername == "" || cfg.UsenetPassword == "" {
-			return fmt.Errorf("usenet_host, usenet_port, usenet_username, and usenet_password are all required when download_mode is embedded_nzbget")
+			return fmt.Errorf("usenet_host, usenet_port, usenet_username, and usenet_password are all required for abook_download_mode=embedded_nzbget")
 		}
 		if cfg.EmbeddedDownloadDir == "" {
-			return fmt.Errorf("embedded_download_dir is required when download_mode is embedded_nzbget (used as the NZBGet working dir)")
+			return fmt.Errorf("embedded_download_dir is required for abook_download_mode=embedded_nzbget (used as the NZBGet working dir)")
 		}
 	}
 	if cfg.UsenetPort < 0 || cfg.UsenetPort > 65535 {
@@ -226,16 +293,16 @@ func ValidateAppConfig(cfg Config) error {
 	if cfg.UsenetConnections < 0 || cfg.UsenetConnections > 64 {
 		return fmt.Errorf("usenet_connections must be between 0 and 64 (0 = default 8)")
 	}
-	if cfg.DownloadMode == "qbittorrent" && cfg.QBitURL == "" {
-		return fmt.Errorf("qbittorrent_url is required when download_mode is qbittorrent")
+	if abMode == "qbittorrent" && cfg.QBitURL == "" {
+		return fmt.Errorf("qbittorrent_url is required for audiobookbay_download_mode=qbittorrent")
 	}
 	if cfg.QBitURL != "" {
 		if err := validateOriginURL(cfg.QBitURL, true); err != nil {
 			return fmt.Errorf("qbittorrent_url: %w", err)
 		}
 	}
-	if cfg.DownloadMode == "embedded" && cfg.EmbeddedDownloadDir == "" {
-		return fmt.Errorf("embedded_download_dir is required when download_mode is embedded")
+	if abMode == "embedded" && cfg.EmbeddedDownloadDir == "" {
+		return fmt.Errorf("embedded_download_dir is required for audiobookbay_download_mode=embedded")
 	}
 	if cfg.EmbeddedListenPort < 0 || cfg.EmbeddedListenPort > 65535 {
 		return fmt.Errorf("embedded_listen_port must be between 0 and 65535")
@@ -249,8 +316,8 @@ func ValidateAppConfig(cfg Config) error {
 	if abookCredsPartial {
 		return fmt.Errorf("abook_email and abook_password must both be set together")
 	}
-	if cfg.AbookEmail != "" && cfg.NZBGetURL == "" {
-		return fmt.Errorf("nzbget_url is required when abook_email is set (abook hits are dispatched via NZBGet)")
+	if abookMode == "external_nzbget" && cfg.NZBGetURL == "" {
+		return fmt.Errorf("nzbget_url is required for abook_download_mode=external_nzbget")
 	}
 	if cfg.NZBGetURL != "" {
 		if err := validateOriginURL(cfg.NZBGetURL, true); err != nil {

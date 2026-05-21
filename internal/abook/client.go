@@ -34,7 +34,7 @@ const (
 // presence is required by /action=login2. The name + value rotate per
 // PHPSESSID so we have to fetch the login page first and parse them out.
 // The field's name and value are both 12-hex-char strings.
-var smfHiddenFieldRe = regexp.MustCompile(`name="([0-9a-f]{8,16})"\s+value="([0-9a-f]{8,64})"`)
+var smfHiddenFieldRe = regexp.MustCompile(`name="([0-9a-f]{6,16})"\s+value="([0-9a-f]{8,64})"`)
 
 // extractCSRFNonce pulls the first SMF hidden-name pair out of the login form
 // HTML. Returns ("", "", false) if the page doesn't look like SMF's login

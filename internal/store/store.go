@@ -23,9 +23,10 @@ func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 
 func DefaultAppConfig() pluginrt.Config {
 	return pluginrt.Config{
-		DownloadMode: "scrape_only",
-		SearchLimit:  10,
-		Trackers:     []string{},
+		AudiobookBayDownloadMode: "scrape_only",
+		AbookDownloadMode:        "scrape_only",
+		SearchLimit:              10,
+		Trackers:                 []string{},
 	}
 }
 
@@ -91,13 +92,38 @@ func (s *Store) ImportLegacyAppConfig(ctx context.Context, legacy pluginrt.Confi
 }
 
 func normalize(cfg *pluginrt.Config) {
-	if cfg.DownloadMode == "" {
-		if cfg.QBitURL != "" {
-			cfg.DownloadMode = "qbittorrent"
-		} else {
-			cfg.DownloadMode = "scrape_only"
+	if cfg.AudiobookBayDownloadMode == "" {
+		// Carry legacy DownloadMode forward when it represents a torrent
+		// path; otherwise default to scrape_only so the source stays
+		// passive until the operator opts in.
+		switch cfg.DownloadMode {
+		case "scrape_only", "qbittorrent", "embedded":
+			cfg.AudiobookBayDownloadMode = cfg.DownloadMode
+		default:
+			if cfg.QBitURL != "" {
+				cfg.AudiobookBayDownloadMode = "qbittorrent"
+			} else {
+				cfg.AudiobookBayDownloadMode = "scrape_only"
+			}
 		}
 	}
+	if cfg.AbookDownloadMode == "" {
+		switch cfg.DownloadMode {
+		case "embedded_nzbget", "external_nzbget":
+			cfg.AbookDownloadMode = cfg.DownloadMode
+		case "qbittorrent", "embedded":
+			if cfg.NZBGetURL != "" {
+				cfg.AbookDownloadMode = "external_nzbget"
+			} else {
+				cfg.AbookDownloadMode = "scrape_only"
+			}
+		default:
+			cfg.AbookDownloadMode = "scrape_only"
+		}
+	}
+	// DownloadMode is legacy; clear it so the DB only reflects the new
+	// per-source fields going forward.
+	cfg.DownloadMode = ""
 	if cfg.SearchLimit == 0 {
 		cfg.SearchLimit = 10
 	}

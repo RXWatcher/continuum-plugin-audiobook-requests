@@ -107,7 +107,7 @@ func main() {
 		cfg = appCfg
 
 		var embeddedManager *embedded.Manager
-		if cfg.ProviderConfigured() && cfg.DownloadMode == "embedded" {
+		if cfg.ProviderConfigured() && cfg.EffectiveAudiobookBayMode() == "embedded" {
 			embeddedManager, err = embedded.New(embedded.Config{
 				DownloadDir:   cfg.EmbeddedDownloadDir,
 				ListenPort:    cfg.EmbeddedListenPort,
@@ -122,7 +122,7 @@ func main() {
 		if cfg.ProviderConfigured() {
 			abbClient = audiobookbay.NewClient(audiobookbay.Config{
 				BaseURL:             cfg.BaseURL,
-				DownloadMode:        cfg.DownloadMode,
+				DownloadMode:        cfg.EffectiveAudiobookBayMode(),
 				QBitURL:             cfg.QBitURL,
 				QBitUsername:        cfg.QBitUsername,
 				QBitPassword:        cfg.QBitPassword,
@@ -155,7 +155,7 @@ func main() {
 		// generated credentials — the abook+nzbking path then talks
 		// to our local daemon instead of an external one.
 		var nzbgetSupervisor *embeddednzbget.Manager
-		if cfg.DownloadMode == "embedded_nzbget" && cfg.EmbeddedNZBGetConfigured() {
+		if cfg.EffectiveAbookMode() == "embedded_nzbget" && cfg.EmbeddedNZBGetConfigured() {
 			sup, sErr := embeddednzbget.New(embeddednzbget.Config{
 				DownloadDir: cfg.EmbeddedDownloadDir,
 				Provider: embeddednzbget.NewsProvider{
@@ -271,7 +271,7 @@ func main() {
 		if old := poolPtr.Swap(p); old != nil {
 			old.Close()
 		}
-		logger.Info("configured", "base_url", cfg.BaseURL, "download_mode", cfg.DownloadMode)
+		logger.Info("configured", "base_url", cfg.BaseURL, "audiobookbay_mode", cfg.EffectiveAudiobookBayMode(), "abook_mode", cfg.EffectiveAbookMode())
 		return nil
 	})
 

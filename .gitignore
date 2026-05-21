@@ -3,3 +3,4 @@
 *.out
 .envrc
 .claude/
+/continuum-plugin-audiobook-requests

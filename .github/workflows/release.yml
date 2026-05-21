@@ -1,0 +1,19 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+      - ".gitignore"
+      - ".github/**"
+
+jobs:
+  release:
+    uses: RXWatcher/continuum-plugin-repository/.github/workflows/build-plugin.yml@main
+    secrets:
+      CATALOG_SSH_KEY: ${{ secrets.CATALOG_SSH_KEY }}
+    with:
+      plugin_name: continuum-plugin-audiobook-requests

@@ -1,6 +1,6 @@
 {
   "plugin_id": "continuum.audiobook-requests",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "checksum": "1250f06209dc3fbfffe6bf2b475003cc8f49f8e64f1b75faeb2e1e22c93ed38e",
   "continuum_api_version": "v1",
   "category": "Books/Audiobooks",

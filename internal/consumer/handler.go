@@ -16,11 +16,11 @@ import (
 
 	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/abook"
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/nzbget"
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/nzbking"
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/store"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/abook"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/nzbget"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/nzbking"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/store"
 )
 
 // NZBExternalIDPrefix marks a forwarded_request row whose external_id is

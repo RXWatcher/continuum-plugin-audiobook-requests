@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/embedded"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/embedded"
 	"golang.org/x/net/html"
 )
 

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/consumer"
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/store"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/consumer"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/store"
 )
 
 // pollNZBGet handles one forwarded_request whose external_id is an

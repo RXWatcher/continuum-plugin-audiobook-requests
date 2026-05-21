@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/abook"
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/nzbget"
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/store"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/abook"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/nzbget"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/store"
 )
 
 // abookSearchTimeout caps every abook HTTP step (login, search, topic

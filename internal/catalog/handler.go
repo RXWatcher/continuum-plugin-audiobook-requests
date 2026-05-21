@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/audiobookbay"
 )
 
 type Handler struct {

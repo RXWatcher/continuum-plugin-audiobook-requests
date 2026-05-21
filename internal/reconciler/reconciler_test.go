@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/audiobookbay"
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/reconciler"
-	"github.com/ContinuumApp/continuum-plugin-audiobook-requests/internal/store"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/reconciler"
+	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/store"
 )
 
 type fakePub struct {

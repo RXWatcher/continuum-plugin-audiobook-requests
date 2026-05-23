@@ -33,7 +33,7 @@ Anchored under `embedded_download_dir` (the same dir used for embedded torrents 
 
 ## Generated credentials
 
-Every `Start()` mints fresh RPC credentials via `newRPCCredentials` (8 random bytes for the username, 16 for the password, hex-encoded; username is prefixed `continuum-`). They're written into `nzbget.conf` and exposed via `Manager.Credentials()` / `Manager.Endpoint()`.
+Every `Start()` mints fresh RPC credentials via `newRPCCredentials` (8 random bytes for the username, 16 for the password, hex-encoded; username is prefixed `silo-`). They're written into `nzbget.conf` and exposed via `Manager.Credentials()` / `Manager.Endpoint()`.
 
 In `main.go`, after the supervisor starts, the plugin **overwrites** the config's `NZBGetURL`, `NZBGetUsername`, and `NZBGetPassword` with the supervised values:
 
@@ -86,7 +86,7 @@ If `embeddednzbget.New` returns an error (e.g. wrong platform, missing download 
 NZBGet's stdout/stderr are pumped line-by-line through the plugin's hclog as `nzbget[stdout]` / `nzbget[stderr]` with the daemon line in the `line` field. To grep:
 
 ```bash
-journalctl -u continuum --since "10 min ago" | grep 'nzbget\[' | tail -50
+journalctl -u silo --since "10 min ago" | grep 'nzbget\[' | tail -50
 ```
 
 NZBGet also writes its own log to `<embedded_download_dir>/.nzbget/queue/nzbget.log`. That file has more detail (per-article failures, par2 progress) than the line-pump emits.

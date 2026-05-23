@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/audiobookbay"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/consumer"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/nzbget"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/store"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/consumer"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/nzbget"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/store"
 )
 
 // tickTimeout caps a full Tick invocation. The scheduler fires this task on

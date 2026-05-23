@@ -9,11 +9,11 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
+	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
 
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/audiobookbay"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/consumer"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/store"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/consumer"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/store"
 )
 
 type fakePub struct {
@@ -50,7 +50,7 @@ func newConsumerForTest(t *testing.T, upstream *httptest.Server) (*consumer.Hand
 	ebk := audiobookbay.NewClient(audiobookbay.Config{BaseURL: upstream.URL, QBitURL: qbt.URL}, nil)
 	deps := &consumer.Deps{
 		Store: st, Pub: pub, ABB: ebk,
-		PluginID: "continuum.audiobook-requests",
+		PluginID: "silo.audiobook-requests",
 	}
 	h := consumer.New(func() *consumer.Deps { return deps }, nil)
 	return h, pub, st
@@ -70,10 +70,10 @@ func TestConsumer_HappyPath_EmitsAcknowledged(t *testing.T) {
 	defer up.Close()
 	h, pub, st := newConsumerForTest(t, up)
 	_, _ = h.HandleEvent(context.Background(), &pluginv1.HandleEventRequest{
-		EventName: "plugin.continuum.audiobooks.request_submitted",
+		EventName: "plugin.silo.audiobooks.request_submitted",
 		Payload: mustStruct(t, map[string]any{
 			"request_id":       "r-1",
-			"target_plugin_id": "continuum.audiobook-requests",
+			"target_plugin_id": "silo.audiobook-requests",
 			"title":            "Book",
 		}),
 	})
@@ -96,10 +96,10 @@ func TestConsumer_MissingQuery_EmitsFailed(t *testing.T) {
 	defer up.Close()
 	h, pub, st := newConsumerForTest(t, up)
 	_, _ = h.HandleEvent(context.Background(), &pluginv1.HandleEventRequest{
-		EventName: "plugin.continuum.audiobooks.request_submitted",
+		EventName: "plugin.silo.audiobooks.request_submitted",
 		Payload: mustStruct(t, map[string]any{
 			"request_id":       "r-2",
-			"target_plugin_id": "continuum.audiobook-requests",
+			"target_plugin_id": "silo.audiobook-requests",
 		}),
 	})
 	if len(pub.pubs) != 1 || pub.pubs[0].Name != "request_failed" {
@@ -118,10 +118,10 @@ func TestConsumer_SkipsTargetMismatch(t *testing.T) {
 	defer up.Close()
 	h, pub, _ := newConsumerForTest(t, up)
 	_, _ = h.HandleEvent(context.Background(), &pluginv1.HandleEventRequest{
-		EventName: "plugin.continuum.audiobooks.request_submitted",
+		EventName: "plugin.silo.audiobooks.request_submitted",
 		Payload: mustStruct(t, map[string]any{
 			"request_id":       "r-3",
-			"target_plugin_id": "continuum.other-audiobook-provider",
+			"target_plugin_id": "silo.other-audiobook-provider",
 			"title":            "X",
 		}),
 	})
@@ -152,10 +152,10 @@ func fakeQBit(t *testing.T) *httptest.Server {
 func TestConsumer_NotConfigured_Nacks(t *testing.T) {
 	h := consumer.New(func() *consumer.Deps { return nil }, nil)
 	resp, err := h.HandleEvent(context.Background(), &pluginv1.HandleEventRequest{
-		EventName: "plugin.continuum.audiobooks.request_submitted",
+		EventName: "plugin.silo.audiobooks.request_submitted",
 		Payload: mustStruct(t, map[string]any{
 			"request_id":       "r-cfg",
-			"target_plugin_id": "continuum.audiobook-requests",
+			"target_plugin_id": "silo.audiobook-requests",
 			"title":            "X",
 		}),
 	})

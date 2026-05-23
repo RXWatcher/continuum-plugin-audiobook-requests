@@ -10,8 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/migrate"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/store"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/migrate"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/store"
 )
 
 var (
@@ -38,7 +38,7 @@ func testDSN() string {
 		return v
 	}
 	return fmt.Sprintf(
-		"postgres://continuum:continuum@localhost:5432/continuum?search_path=%s&sslmode=disable",
+		"postgres://silo:silo@localhost:5432/silo?search_path=%s&sslmode=disable",
 		schemaName(),
 	)
 }

@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"strings"
 
-	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
+	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
 
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/reconciler"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/reconciler"
 )
 
-// taskID extracts the capability id from a scheduled-task key. The Continuum
+// taskID extracts the capability id from a scheduled-task key. The Silo
 // host sends "plugin:<installationID>:<capabilityID>" (task_registry
 // pluginTaskKey); bare ids may arrive from host integration tests. This
 // plugin's only task id ("reconciler") contains no ':'.

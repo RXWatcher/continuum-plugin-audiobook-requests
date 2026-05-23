@@ -14,13 +14,13 @@ import (
 
 	"github.com/hashicorp/go-hclog"
 
-	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/continuum/plugin/v1"
+	pluginv1 "github.com/ContinuumApp/continuum-plugin-sdk/pkg/pluginproto/silo/plugin/v1"
 
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/abook"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/audiobookbay"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/nzbget"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/nzbking"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/store"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/abook"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/nzbget"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/nzbking"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/store"
 )
 
 // NZBExternalIDPrefix marks a forwarded_request row whose external_id is
@@ -76,7 +76,7 @@ func New(depsFn func() *Deps, logger hclog.Logger) *Handler {
 }
 
 func (h *Handler) HandleEvent(ctx context.Context, req *pluginv1.HandleEventRequest) (*pluginv1.HandleEventResponse, error) {
-	if req.GetEventName() != "plugin.continuum.audiobooks.request_submitted" {
+	if req.GetEventName() != "plugin.silo.audiobooks.request_submitted" {
 		return &pluginv1.HandleEventResponse{}, nil
 	}
 	if req.GetPayload() == nil {

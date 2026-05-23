@@ -1,4 +1,4 @@
-// Package event publishes named events into continuum's event hub.
+// Package event publishes named events into silo's event hub.
 package event
 
 import (

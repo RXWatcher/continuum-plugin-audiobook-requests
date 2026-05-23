@@ -15,7 +15,7 @@ When a user says "my request didn't come through":
 | Symptom | First check | Confirms |
 | --- | --- | --- |
 | Request stuck in `submitted` | `external_id` column in row | Empty → consumer never dispatched (search miss or upstream error). Non-empty → reconciler issue |
-| `failed` with `title or source_id required for AudiobookBay request` | The originating event payload in `continuum.audiobooks` | Audiobooks plugin sent an empty title and no source pin — not our bug |
+| `failed` with `title or source_id required for AudiobookBay request` | The originating event payload in `silo.audiobooks` | Audiobooks plugin sent an empty title and no source pin — not our bug |
 | `failed` with `no AudiobookBay result for "..."` | Run the **Search lab** with the same query | If lab returns 0 hits with no error, search is genuinely empty. If lab errors with "audiobookbay blocked: ...", the mirror is challenging us |
 | Search lab shows `audiobookbay blocked: cloudflare` / `hcaptcha` / `attention required` | `internal/audiobookbay.blockSignatures` for the full list | Mirror is serving a challenge. Either wait, change `base_url` to a different mirror, or route through a proxy. The block detection runs on HTTP 200 bodies too — see below |
 | Search returns 0 hits but you know the title is on the site | curl the search URL manually: `curl "https://audiobookbay.lu/page/1/?s=<query>"` | If your curl works but the plugin doesn't, the user-agent or scraping rules are upstream's filter target |

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/audiobookbay"
 )
 
 const publicDomainABBDetailURL = "https://audiobookbay.lu/abss/othe-sandman-his-farm-stories-william-john-hopkins/"

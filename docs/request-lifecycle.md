@@ -17,7 +17,7 @@ The state machine lives in `internal/consumer` (event handler) and `internal/rec
 
 ## Walkthrough
 
-1. **Event arrives.** `plugin.continuum.audiobooks.request_submitted` lands at the event consumer. The handler filters on `target_plugin_id == continuum.audiobook-requests`; foreign events are acked and dropped. Events missing both `title` and `source_id` are recorded as `failed` with `title or source_id required for AudiobookBay request`, emit `request_failed`, and ack.
+1. **Event arrives.** `plugin.silo.audiobooks.request_submitted` lands at the event consumer. The handler filters on `target_plugin_id == silo.audiobook-requests`; foreign events are acked and dropped. Events missing both `title` and `source_id` are recorded as `failed` with `title or source_id required for AudiobookBay request`, emit `request_failed`, and ack.
 
 2. **First DB write (mandatory).** The consumer writes a `submitted` row before any network call. The handler nacks the event if this write fails — there is **no untracked work**, ever. The host will redeliver; the upsert is idempotent and the terminal guard makes the redelivery safe.
 

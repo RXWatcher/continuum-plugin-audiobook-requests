@@ -1,6 +1,6 @@
-/continuum-plugin-audiobookbay-requests
+/silo-plugin-audiobookbay-requests
 *.test
 *.out
 .envrc
 .claude/
-/continuum-plugin-audiobook-requests
+/silo-plugin-audiobook-requests

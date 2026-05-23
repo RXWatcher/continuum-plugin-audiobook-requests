@@ -1,0 +1,94 @@
+{
+  "plugin_id": "silo.audiobook-requests",
+  "version": "1.0.3",
+  "checksum": "1250f06209dc3fbfffe6bf2b475003cc8f49f8e64f1b75faeb2e1e22c93ed38e",
+  "silo_api_version": "v1",
+  "category": "Books/Audiobooks",
+  "supported_platforms": [
+    {
+      "os": "linux",
+      "arch": "amd64"
+    }
+  ],
+  "capabilities": [
+    {
+      "type": "http_routes.v1",
+      "id": "backend",
+      "display_name": "Audiobook Requests API",
+      "description": "Request-provider API for scored AudiobookBay search, magnet resolution, diagnostics, and optional qBittorrent enqueueing."
+    },
+    {
+      "type": "event_consumer.v1",
+      "id": "request_handler",
+      "display_name": "Audiobook request handler",
+      "description": "Forwards audiobook request_submitted events to AudiobookBay search and the configured download mode.",
+      "subscriptions": [
+        "plugin.silo.audiobooks.request_submitted"
+      ]
+    },
+    {
+      "type": "audiobook_backend.v1",
+      "id": "default",
+      "display_name": "Audiobook Requests",
+      "description": "Scraper-based audiobook request provider backed by AudiobookBay with optional qBittorrent enqueueing; not a presentation library source.",
+      "metadata": {
+        "audiobook_roles": [
+          "request_provider"
+        ],
+        "supports_catalog": false,
+        "supports_requests": true,
+        "supports_auto_monitoring": false
+      }
+    },
+    {
+      "type": "scheduled_task.v1",
+      "id": "reconciler",
+      "display_name": "Reconcile AudiobookBay request status",
+      "description": "Polls embedded/qBittorrent download status for non-terminal audiobook requests.",
+      "cron": "*/1 * * * *"
+    }
+  ],
+  "http_routes": [
+    {
+      "id": "api",
+      "method": "*",
+      "path": "/api/v1/*",
+      "access": "authenticated"
+    },
+    {
+      "id": "admin",
+      "method": "GET",
+      "path": "/admin",
+      "access": "admin",
+      "navigable": true,
+      "navigation_label": "Audiobook Requests",
+      "navigation_kind": "admin"
+    },
+    {
+      "id": "admin_sub",
+      "method": "GET",
+      "path": "/admin/*",
+      "access": "admin"
+    }
+  ],
+  "global_config_schema": [
+    {
+      "key": "database_url",
+      "title": "Postgres connection string",
+      "description": "DSN for the dedicated AudiobookBay requests schema.",
+      "json_schema": "{\"type\":\"object\",\"properties\":{\"value\":{\"type\":\"string\"}},\"required\":[\"value\"]}",
+      "required": true,
+      "admin_form": {
+        "fields": [
+          {
+            "key": "value",
+            "label": "Connection URL",
+            "control": "ADMIN_FORM_CONTROL_PASSWORD",
+            "required": true,
+            "secret": true
+          }
+        ]
+      }
+    }
+  ]
+}

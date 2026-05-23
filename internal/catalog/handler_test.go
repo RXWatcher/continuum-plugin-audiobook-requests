@@ -9,8 +9,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/audiobookbay"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/catalog"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/catalog"
 )
 
 func newRouter(c *audiobookbay.Client) *chi.Mux {

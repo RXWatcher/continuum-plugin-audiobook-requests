@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/embedded"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/embedded"
 )
 
 func TestManagerStartsAndReportsUnknownQueued(t *testing.T) {

@@ -1,4 +1,4 @@
-module github.com/RXWatcher/continuum-plugin-audiobook-requests
+module github.com/RXWatcher/silo-plugin-audiobook-requests
 
 go 1.26.0
 

@@ -14,14 +14,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/abook"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/audiobookbay"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/catalog"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/consumer"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/nzbget"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/reconciler"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/runtime"
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/store"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/abook"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/audiobookbay"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/catalog"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/consumer"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/nzbget"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/reconciler"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/runtime"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/store"
 )
 
 // stuckThreshold flags non-terminal rows with no progress in the trailing
@@ -523,7 +523,7 @@ setInterval(loadReconciler,30000);
 }
 
 func adminTheme(r *http.Request) string {
-	theme := r.Header.Get("X-Continuum-Theme")
+	theme := r.Header.Get("X-Silo-Theme")
 	if theme == "" {
 		theme = r.URL.Query().Get("theme")
 	}
@@ -583,7 +583,7 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, map[string]any{
-		"plugin_id":     "continuum.audiobook-requests",
+		"plugin_id":     "silo.audiobook-requests",
 		"role":          "request_provider",
 		"configured":    s.deps.Config.ProviderConfigured(),
 		"base_url":      s.deps.Config.BaseURL,

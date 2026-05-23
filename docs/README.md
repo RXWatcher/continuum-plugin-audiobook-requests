@@ -1,6 +1,6 @@
 # Operator docs
 
-The plugin [README](../README.md) covers what `continuum.audiobook-requests` is, its capabilities, configuration keys, and event surface. These docs are for the operator on call when something stops working.
+The plugin [README](../README.md) covers what `silo.audiobook-requests` is, its capabilities, configuration keys, and event surface. These docs are for the operator on call when something stops working.
 
 Index:
 

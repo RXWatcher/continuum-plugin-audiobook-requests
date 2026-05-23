@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/embedded"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/embedded"
 	"golang.org/x/net/html"
 )
 

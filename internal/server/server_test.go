@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/RXWatcher/continuum-plugin-audiobook-requests/internal/server"
+	"github.com/RXWatcher/silo-plugin-audiobook-requests/internal/server"
 )
 
 func TestHealthOK(t *testing.T) {

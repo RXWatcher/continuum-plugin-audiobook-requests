@@ -1,8 +1,8 @@
-# Audiobook Requests for Continuum
+# Audiobook Requests for Silo
 
-`continuum.audiobook-requests` is a request provider for the Continuum Audiobooks portal. It listens for `request_submitted` events from `continuum.audiobooks`, searches AudiobookBay (and optionally abook.link), resolves the best result to a magnet or NZB, and hands it to the configured downloader so the request can be reconciled to completion.
+`silo.audiobook-requests` is a request provider for the Silo Audiobooks portal. It listens for `request_submitted` events from `silo.audiobooks`, searches AudiobookBay (and optionally abook.link), resolves the best result to a magnet or NZB, and hands it to the configured downloader so the request can be reconciled to completion.
 
-The plugin is a request provider only — not a library backend. It does not expose shelves, streams, playback sessions, or Audiobookshelf-compatible routes. Install it beside `continuum.audiobooks` when you want incoming audiobook requests fulfilled from public AudiobookBay scrape results, or from a private abook.link account routed through NZBGet.
+The plugin is a request provider only — not a library backend. It does not expose shelves, streams, playback sessions, or Audiobookshelf-compatible routes. Install it beside `silo.audiobooks` when you want incoming audiobook requests fulfilled from public AudiobookBay scrape results, or from a private abook.link account routed through NZBGet.
 
 Use this plugin only with content you are legally allowed to access.
 
@@ -15,20 +15,20 @@ Lives under **Books / Audiobooks** in the admin sidebar.
 | Type | ID | Purpose |
 | --- | --- | --- |
 | `http_routes.v1` | `backend` | Admin API for diagnostics, test search, request queue inspection, retry/mark-failed actions, abook + NZBGet test buttons, and reconciler status. Mounted at `/api/v1/*` (authenticated) plus an admin SPA at `/admin`. |
-| `event_consumer.v1` | `request_handler` | Subscribes to `plugin.continuum.audiobooks.request_submitted` and forwards the request to abook (when configured) or AudiobookBay. |
+| `event_consumer.v1` | `request_handler` | Subscribes to `plugin.silo.audiobooks.request_submitted` and forwards the request to abook (when configured) or AudiobookBay. |
 | `audiobook_backend.v1` | `default` | Declares this plugin as an audiobook `request_provider`. `supports_requests=true`, `supports_catalog=false`, `supports_auto_monitoring=false`. |
 | `scheduled_task.v1` | `reconciler` | Cron `*/1 * * * *`. Polls non-terminal forwarded requests against AudiobookBay (torrent) or NZBGet (Usenet) and emits status events. |
 
 ## Dependencies
 
-- **[`continuum-plugin-audiobooks`](https://github.com/RXWatcher/continuum-plugin-audiobooks)** — the portal that publishes `plugin.continuum.audiobooks.request_submitted` events this plugin consumes and that observes the status events this plugin publishes back. Without it, there is no request source.
+- **[`silo-plugin-audiobooks`](https://github.com/RXWatcher/silo-plugin-audiobooks)** — the portal that publishes `plugin.silo.audiobooks.request_submitted` events this plugin consumes and that observes the status events this plugin publishes back. Without it, there is no request source.
 - **Postgres schema** — the plugin runs its own migrations in a dedicated schema (default `audiobook_requests`).
-- **Continuum host** ([`ContinuumApp/continuum`](https://github.com/ContinuumApp/continuum)) and the SDK ([`ContinuumApp/continuum-plugin-sdk`](https://github.com/ContinuumApp/continuum-plugin-sdk)).
+- **Silo host** ([`ContinuumApp/silo`](https://github.com/ContinuumApp/silo)) and the SDK ([`ContinuumApp/continuum-plugin-sdk`](https://github.com/ContinuumApp/continuum-plugin-sdk)).
 
 Sibling request providers (install at most one as the active provider in the Audiobooks portal):
 
-- `continuum-plugin-audiobook-requests` (this) — AudiobookBay + abook.link.
-- [`continuum-plugin-bookwarehouse-audio`](https://github.com/RXWatcher/continuum-plugin-bookwarehouse-audio) — alternate catalog/stream backend via BookWarehouse.
+- `silo-plugin-audiobook-requests` (this) — AudiobookBay + abook.link.
+- [`silo-plugin-bookwarehouse-audio`](https://github.com/RXWatcher/silo-plugin-bookwarehouse-audio) — alternate catalog/stream backend via BookWarehouse.
 
 ## External services
 
@@ -41,7 +41,7 @@ Sibling request providers (install at most one as the active provider in the Aud
 
 ## Request lifecycle
 
-1. `continuum.audiobooks` publishes `plugin.continuum.audiobooks.request_submitted` with a `request_id`, `target_plugin_id`, optional `source_id`, plus `title` and `author`.
+1. `silo.audiobooks` publishes `plugin.silo.audiobooks.request_submitted` with a `request_id`, `target_plugin_id`, optional `source_id`, plus `title` and `author`.
 2. The consumer persists a `submitted` row in `forwarded_requests` *before* any network call. If the row can't be written, the event is nacked so the host redelivers — never start untracked work.
 3. If the abook + NZBGet pipeline is fully configured and the caller did not pin a specific `source_id`, the consumer tries abook first (`abook search → topic → nzbking → NZBGet Append`). On any hard failure it falls back to AudiobookBay; abook is opportunistic, not gating. The row's `external_id` is prefixed `nzbget:<NZBID>` so the reconciler routes its polls correctly.
 4. Otherwise (or on abook miss), the consumer calls `audiobookbay.StartDownload`, which either resolves the supplied `source_id` or runs `ExternalSearch`, scores hits, picks the best, and dispatches per `audiobookbay_download_mode`:
@@ -54,7 +54,7 @@ Sibling request providers (install at most one as the active provider in the Aud
 
 ## Configuration
 
-Validation lives in `internal/runtime.ValidateAppConfig`; admin form fields are defined in `cmd/continuum-plugin-audiobook-requests/manifest.json` and mutated through the admin SPA.
+Validation lives in `internal/runtime.ValidateAppConfig`; admin form fields are defined in `cmd/silo-plugin-audiobook-requests/manifest.json` and mutated through the admin SPA.
 
 **Storage**
 
@@ -111,7 +111,7 @@ Validation lives in `internal/runtime.ValidateAppConfig`; admin form fields are 
 
 Consumes:
 
-- `plugin.continuum.audiobooks.request_submitted` — the only subscribed event; the handler ignores events whose `target_plugin_id` isn't `continuum.audiobook-requests`.
+- `plugin.silo.audiobooks.request_submitted` — the only subscribed event; the handler ignores events whose `target_plugin_id` isn't `silo.audiobook-requests`.
 
 Publishes (suffixes; the host namespaces them under this plugin's ID):
 
@@ -127,8 +127,8 @@ Publishes (suffixes; the host namespaces them under this plugin's ID):
 ## Build and release
 
 ```bash
-make build       # builds ./continuum-plugin-audiobook-requests
+make build       # builds ./silo-plugin-audiobook-requests
 make test        # go test ./...
 ```
 
-CI builds linux-amd64 binaries on push to main via the reusable workflow in [RXWatcher/continuum-plugin-repository](https://github.com/RXWatcher/continuum-plugin-repository) and publishes them to the catalog at [`./binaries/`](https://github.com/RXWatcher/continuum-plugin-repository/tree/main/binaries).
+CI builds linux-amd64 binaries on push to main via the reusable workflow in [RXWatcher/silo-plugin-repository](https://github.com/RXWatcher/silo-plugin-repository) and publishes them to the catalog at [`./binaries/`](https://github.com/RXWatcher/silo-plugin-repository/tree/main/binaries).
